@@ -1,17 +1,49 @@
 # InnerLens — ReflectXR + MindMate
 
-Build the **Reflect XR** mobile app (required by ChallengeX) and add **MindMate** as a standout feature — an AI chatbot that converses with the user, detects their emotional state, and automatically generates art based on how they're feeling, without the user needing to craft prompts manually.
+**Title:** *Developing an Emotion-Based Generative AI Mobile Experience for Arts & Wellness*
+**Sponsor:** Persistent Technology, Inc.
+**Timeline:** 9 weeks (part-time — all contributors are full-time students with jobs)
+
+ReflectXR is a cross-platform mobile app that lets users select or describe an emotion, generate AI artwork from that emotion, and reflect on the result through creative journaling. MindMate is our team's original addition — a conversational AI companion that detects emotions from natural conversation and generates art automatically, without the user ever writing a prompt.
+
+---
+
+## Requirement Traceability
+
+Every feature maps back to the sponsor's project brief. This table is the source of truth — if something isn't checked here, it isn't done.
+
+| # | Sponsor Requirement | Where It Lives | Status |
+|---|---------------------|---------------|--------|
+| R1 | Cross-platform mobile prototype (iOS + Android) | `reflectxr-mobile/` — React Native + Expo | Scaffold done |
+| R2 | Generative AI image synthesis from text prompts | `POST /generate` → OpenAI DALL-E 3 / Stability AI | Scaffold done |
+| R3 | User-friendly emotion input interface | Concepts screen → Emotion dropdown → Style dropdown | Scaffold done |
+| R4 | Creative journaling with image reflection | Reflect screen → Journal entry → saved to DB | Scaffold done |
+| R5 | Emotional tagging / NLP keyword association | `emotion_service.py` → tags stored on journal entries | Scaffold done |
+| R6 | Word/image linking or tagging feature | Emotion tags displayed on journal list + detail screens | Scaffold done |
+| R7 | Calming, reflective, accessible UI/UX design | `src/theme/` — wellness palette, generous spacing | Scaffold done |
+| R8 | User testing plan + insights (pilot or focus group) | `docs/user-testing/` — 3-5 testers, feedback forms | Not started |
+| R9 | Documentation: architecture, APIs, setup instructions | This README + `docs/` module guides | In progress |
+| R10 | Final presentation/demo to project sponsors | `docs/presentation/` — slides + 3-min demo script | Not started |
+| **Bonus** | MindMate AI chatbot (emotion → auto art generation) | `POST /chat` → emotion extraction → auto `/generate` | Scaffold done |
+| **Bonus** | Alexa/Echo voice integration (stretch) | `alexa/` — Custom Skill → same backend API | Not started |
 
 ---
 
 ## Tech Stack
 
-- **Frontend:** React Native (Expo) + TypeScript
-- **Backend:** FastAPI (Python 3.11)
-- **Database:** PostgreSQL 16 via Supabase
-- **AI/ML:** OpenAI GPT-4o (chat) + DALL-E 3 / Stability AI (images)
-- **Voice:** Amazon Alexa Custom Skill (stretch goal)
-- **Infrastructure:** Docker, NGINX, GitHub Actions
+| Layer | Technology | Why (Not "Vibes") |
+|-------|-----------|-------------------|
+| Mobile app | React Native + Expo + TypeScript | Cross-platform from one codebase. Mohammed has iOS/RN experience. Expo handles builds. |
+| Backend API | FastAPI (Python 3.11) | Async-native, auto-generates OpenAPI docs, Python ecosystem for AI libs. John owns this. |
+| Database | PostgreSQL 16 (Docker) | Industry standard RDBMS. Full control via SQLAlchemy ORM + Alembic migrations. No BaaS. |
+| ORM | SQLAlchemy 2.0 (async) | Type-safe models, explicit queries, migration support via Alembic. |
+| Object storage | S3-compatible (AWS S3 or Cloudflare R2) | Generated images stored in a bucket. R2 has free egress. Accessed via boto3. |
+| Auth | JWT (python-jose + passlib) | Stateless tokens. We own the auth flow — register, login, token refresh. |
+| AI — Chat | OpenAI GPT-4o | Best empathetic conversational quality. Used for MindMate + emotion extraction. |
+| AI — Images | OpenAI DALL-E 3 or Stability AI | DALL-E 3 for fast integration. Stability for more artistic control + cost savings. |
+| Reverse proxy | NGINX (Docker) | Sits in front of the API. Handles SSL termination in prod. |
+| Containers | Docker + Docker Compose | One `docker-compose up` for the full backend stack (Postgres + API + NGINX). |
+| CI/CD | GitHub Actions | Lint, test, build on every PR. Deploy on merge to main. |
 
 ---
 
@@ -21,136 +53,227 @@ Build the **Reflect XR** mobile app (required by ChallengeX) and add **MindMate*
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         CLIENT LAYER                                │
 │                                                                     │
-│   ┌───────────────────┐          ┌───────────────────┐              │
-│   │  React Native App │          │   Alexa / Echo    │              │
-│   │  (Expo - Mobile)  │          │  (Voice Skill)    │              │
-│   │                   │          │                   │              │
-│   │  • Home           │          │  • CheckInIntent  │              │
-│   │  • Concepts       │          │  • GroundingIntent│              │
-│   │  • Prompt Design  │          │  • ReflectIntent  │              │
-│   │  • MindMate Chat  │          │                   │              │
-│   │  • Journal        │          │                   │              │
-│   └────────┬──────────┘          └────────┬──────────┘              │
-│            │ HTTPS                        │ HTTPS                   │
-└────────────┼──────────────────────────────┼─────────────────────────┘
-             │                              │
-             ▼                              ▼
+│   ┌───────────────────────┐        ┌────────────────────┐          │
+│   │   React Native App    │        │   Alexa/Echo       │          │
+│   │   (Expo — iOS/Android)│        │   (Stretch Goal)   │          │
+│   │                       │        │                    │          │
+│   │ Screens:              │        │ Intents:           │          │
+│   │  • Home (Create)      │        │  • CheckInIntent   │          │
+│   │  • Concepts           │        │  • GroundingIntent │          │
+│   │  • Prompt Design      │        │  • ReflectIntent   │          │
+│   │  • Prompt Edit        │        │                    │          │
+│   │  • Response           │        │ Voice utterances   │          │
+│   │  • Reflect/Journal    │        │ hit same /chat API │          │
+│   │  • MindMate Chat      │        │                    │          │
+│   │  • Journal History    │        │                    │          │
+│   └──────────┬────────────┘        └─────────┬──────────┘          │
+│              │ HTTPS (axios)                 │ HTTPS (Lambda)      │
+└──────────────┼───────────────────────────────┼──────────────────────┘
+               │                               │
+               ▼                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        API GATEWAY (NGINX)                          │
-│                     reverse proxy → :8000                           │
+│                       NGINX REVERSE PROXY                           │
+│                   :80 → proxy_pass → api:8000                       │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     BACKEND — FastAPI                                │
+│                     FastAPI APPLICATION SERVER                       │
 │                                                                     │
+│  ROUTERS (app/routers/)                                             │
 │  ┌──────────┐ ┌───────────┐ ┌───────────┐ ┌────────┐ ┌──────────┐ │
 │  │ /auth    │ │ /concepts │ │ /generate │ │ /chat  │ │ /journal │ │
 │  │          │ │           │ │           │ │        │ │          │ │
-│  │ register │ │ list      │ │ create    │ │ send   │ │ create   │ │
-│  │ login    │ │ get by id │ │ select    │ │ gen    │ │ list     │ │
-│  │ me       │ │ styles    │ │           │ │ from   │ │ get      │ │
-│  └────┬─────┘ └─────┬─────┘ └─────┬─────┘ │ convo │ └────┬─────┘ │
-│       │             │             │        └───┬────┘      │       │
+│  │ POST     │ │ GET /     │ │ POST /    │ │ POST / │ │ POST /   │ │
+│  │ register │ │ GET /:id  │ │ POST      │ │ POST   │ │ GET /    │ │
+│  │ POST     │ │ GET       │ │ /select   │ │ /gen-  │ │ GET /:id │ │
+│  │ login    │ │ /styles   │ │           │ │ from-  │ │          │ │
+│  │ GET /me  │ │           │ │           │ │ convo  │ │          │ │
+│  └────┬─────┘ └─────┬─────┘ └─────┬─────┘ └───┬────┘ └────┬─────┘ │
+│       │             │             │            │           │       │
 │       ▼             ▼             ▼            ▼           ▼       │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    SERVICES LAYER                            │   │
-│  │                                                             │   │
-│  │  auth_service  ·  image_service  ·  chat_service            │   │
-│  │  emotion_service  ·  prompt_builder                         │   │
-│  └──────────┬────────────────┬────────────────┬────────────────┘   │
-│             │                │                │                     │
-└─────────────┼────────────────┼────────────────┼─────────────────────┘
-              │                │                │
-              ▼                ▼                ▼
-┌──────────────────┐  ┌────────────────┐  ┌──────────────────────┐
-│   PostgreSQL     │  │   Supabase     │  │   AI APIs            │
-│   (Docker)       │  │   Storage      │  │                      │
-│                  │  │                │  │  • OpenAI GPT-4o     │
-│  • users         │  │  • generated   │  │    (chat + emotion)  │
-│  • concepts      │  │    images      │  │  • DALL-E 3 /        │
-│  • sessions      │  │  • avatars     │  │    Stability AI      │
-│  • messages      │  │               │  │    (image gen)       │
-│  • images        │  │               │  │                      │
-│  • journal       │  │               │  │                      │
-│  • emotion_tags  │  │               │  │                      │
-└──────────────────┘  └────────────────┘  └──────────────────────┘
+│  SERVICES (app/services/) ─────────────────────────────────────    │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ auth_service.py    — JWT issue/verify, password hashing      │  │
+│  │ image_service.py   — call DALL-E 3 / Stability AI, upload S3│  │
+│  │ chat_service.py    — build LLM context, call GPT-4o          │  │
+│  │ emotion_service.py — extract emotions from text via LLM      │  │
+│  │ prompt_builder.py  — map emotions → concept prompt templates  │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  AI MODULES (app/ai/) ──────────────────────────────────────────   │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ system_prompts.py  — MindMate personality + extraction rules  │  │
+│  │ safety.py          — crisis keyword detection → 988 fallback  │  │
+│  │ emotion_map.py     — emotion→concept lookup, intensity scoring│  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  DATABASE LAYER (app/db/) ──────────────────────────────────────   │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ database.py — async SQLAlchemy engine + sessionmaker          │  │
+│  │ seed.py     — populate concepts, styles, prompt templates     │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+└──────────┬───────────────────────────┬──────────────────────────────┘
+           │                           │
+           ▼                           ▼
+┌──────────────────────┐     ┌──────────────────────┐
+│   PostgreSQL 16      │     │   S3 / Cloudflare R2 │
+│   (Docker container) │     │   (Object Storage)   │
+│                      │     │                      │
+│   Tables:            │     │   Buckets:           │
+│    • users           │     │    • reflectxr-images │
+│    • concepts        │     │      /generated/     │
+│    • styles          │     │      /thumbnails/    │
+│    • sessions        │     │                      │
+│    • messages        │     │                      │
+│    • generated_images│     │                      │
+│    • journal_entries │     │                      │
+│    • emotion_tags    │     │                      │
+└──────────────────────┘     └──────────────────────┘
+           │
+           │  Migrations managed by
+           ▼
+┌──────────────────────┐
+│   Alembic            │
+│   alembic/versions/  │
+└──────────────────────┘
 ```
 
-## MindMate Chat → Auto Art Generation Flow
+## Core App User Flow (Required — Implements R1-R7)
+
+This is the flow every ChallengeX team must implement. It maps directly to the mockups in the project brief.
 
 ```
-┌──────────┐     ┌──────────────┐     ┌──────────────────┐     ┌────────────────┐
-│  User    │     │  /chat       │     │  chat_service    │     │  OpenAI        │
-│  types   │────▶│  endpoint    │────▶│                  │────▶│  GPT-4o        │
-│  message │     │              │     │  1. crisis check │     │                │
-└──────────┘     └──────────────┘     │  2. add context  │     │  system prompt │
-                                      │  3. call LLM     │     │  + history     │
-                                      └────────┬─────────┘     └───────┬────────┘
-                                               │                       │
-                                               ▼                       ▼
-                                      ┌──────────────────┐     ┌────────────────┐
-                                      │ emotion_service  │     │  LLM reply     │
-                                      │                  │◀────│  returned      │
-                                      │ extract emotions │     └────────────────┘
-                                      │ from conversation│
-                                      └────────┬─────────┘
-                                               │
-                                    ┌──────────┴──────────┐
-                                    │  3+ exchanges AND   │
-                                    │  clear emotion?     │
-                                    ├───── YES ───────────┤
-                                    │                     │
-                                    ▼                     ▼ NO
-                          ┌──────────────────┐    ┌──────────────┐
-                          │  prompt_builder  │    │  Return chat │
-                          │                  │    │  response    │
-                          │  emotion → art   │    │  only        │
-                          │  prompt mapping  │    └──────────────┘
-                          └────────┬─────────┘
-                                   │
-                                   ▼
-                          ┌──────────────────┐
-                          │  image_service   │
-                          │                  │
-                          │  DALL-E 3 /      │
-                          │  Stability AI    │
-                          └────────┬─────────┘
-                                   │
-                                   ▼
-                          ┌──────────────────┐
-                          │  Art appears in  │
-                          │  chat without    │
-                          │  user prompting  │
-                          └──────────────────┘
+  ┌─────────────┐     ┌─────────────────┐     ┌──────────────────┐
+  │  HOME        │     │  CONCEPTS        │     │  PROMPT DESIGN    │
+  │  (Create)    │────▶│                  │────▶│                   │
+  │              │     │  Pre-defined:    │     │  Shows concept's  │
+  │  Tap         │     │   A Safe Space   │     │  prompt template  │
+  │  "Create"    │     │   Emot. Waves    │     │  with blanks:     │
+  │              │     │   Resilience     │     │                   │
+  │              │     │   Journey        │     │  "Create waves of │
+  │              │     │   Masks We Wear  │     │  [DROPDOWN:worry, │
+  │              │     │   Crossroads     │     │   self-doubt...]  │
+  │              │     │   Future Self    │     │   that rise and   │
+  │              │     │   Bridges        │     │   gently fade     │
+  │              │     │   Friendship     │     │   into calm water"│
+  │              │     │   Growing Roots  │     │                   │
+  │              │     │   Letting Go     │     │  + Pick a Style   │
+  │              │     │   Garden of Peace│     │    dropdown       │
+  │              │     │   Rising/Ashes   │     │                   │
+  │              │     │                  │     │  [Next] button    │
+  └─────────────┘     └─────────────────┘     └────────┬─────────┘
+                                                        │
+                                                        ▼
+                                              ┌──────────────────┐
+                                              │  PROMPT EDIT      │
+                                              │                   │
+                                              │  Full assembled   │
+                                              │  prompt shown     │
+                                              │  in editable      │
+                                              │  text field       │
+                                              │                   │
+                                              │  User CAN modify  │
+                                              │  before submit    │
+                                              │                   │
+                                              │  [Submit] →       │
+                                              │  sends to AI API  │
+                                              └────────┬─────────┘
+                                                        │
+                                                        ▼
+  ┌─────────────┐     ┌──────────────────┐    ┌──────────────────┐
+  │  JOURNAL     │     │  REFLECT          │    │  RESPONSE         │
+  │  HISTORY     │◀────│                   │◀───│                   │
+  │              │     │  Selected image   │    │  2x2 grid of     │
+  │  Past        │     │  displayed large  │    │  generated images │
+  │  entries     │     │                   │    │                   │
+  │  with        │     │  Reflection Q     │    │  "Select an      │
+  │  emotion     │     │  carousel (from   │    │   image"          │
+  │  tags        │     │  concept data):   │    │                   │
+  │              │     │  "What sticks out │    │  Tap one to       │
+  │              │     │   to you most     │    │  select it        │
+  │              │     │   about your      │    │                   │
+  │              │     │   artwork?"       │    │                   │
+  │              │     │                   │    │                   │
+  │              │     │  Text input for   │    │                   │
+  │              │     │  journal entry    │    │                   │
+  │              │     │                   │    │                   │
+  │              │     │  Saved to device  │    │                   │
+  │              │     │  + database       │    │                   │
+  └─────────────┘     └──────────────────┘    └──────────────────┘
 ```
 
-## Core App Flow (Required by ChallengeX)
+## MindMate Chat Flow (Bonus Feature — Our Differentiator)
 
 ```
-┌────────────┐    ┌────────────────┐    ┌─────────────────┐    ┌────────────────┐
-│   Home     │    │   Concepts     │    │  Prompt Design  │    │   Response     │
-│   Screen   │───▶│   Screen       │───▶│   Screen        │───▶│   Screen       │
-│            │    │                │    │                 │    │                │
-│ Create     │    │ • Safe Space   │    │ Shows template  │    │ 4 AI-generated │
-│ Learn      │    │ • Emot. Waves  │    │ Emotion dropdown│    │ images in grid │
-│ Reflect    │    │ • Resilience   │    │ Style dropdown  │    │ User picks one │
-│ MindMate   │    │ • Journey      │    │                 │    │                │
-│ Journal    │    │ • Inner Garden │    │ "Generate" btn  │    │ "Select" btn   │
-└────────────┘    └────────────────┘    └─────────────────┘    └───────┬────────┘
-                                                                       │
-                                                                       ▼
-                                                               ┌────────────────┐
-                                                               │   Reflect      │
-                                                               │   Screen       │
-                                                               │                │
-                                                               │ Selected image │
-                                                               │ Journal input  │
-                                                               │ Reflection Q   │
-                                                               │ Emotion tags   │
-                                                               │                │
-                                                               │ → saved to DB  │
-                                                               └────────────────┘
+  User opens MindMate
+         │
+         ▼
+  ┌──────────────┐    ┌───────────────────┐    ┌─────────────────┐
+  │ User types   │───▶│ POST /chat        │───▶│ safety.py       │
+  │ message      │    │                   │    │ check_crisis()  │
+  └──────────────┘    └───────────────────┘    └────────┬────────┘
+                                                        │
+                                          ┌─────────────┴───────────┐
+                                          │  Crisis detected?       │
+                                          ├──── YES ────────────────┤
+                                          │                         │
+                                          ▼                         ▼ NO
+                                 ┌────────────────┐      ┌──────────────────┐
+                                 │ Return 988     │      │ chat_service.py  │
+                                 │ crisis message │      │                  │
+                                 │ immediately    │      │ Build context:   │
+                                 └────────────────┘      │  system prompt   │
+                                                         │  + last N turns  │
+                                                         │  + user message  │
+                                                         │                  │
+                                                         │ Call GPT-4o      │
+                                                         └────────┬─────────┘
+                                                                  │
+                                                                  ▼
+                                                         ┌──────────────────┐
+                                                         │ emotion_service  │
+                                                         │                  │
+                                                         │ Extract emotions │
+                                                         │ + intensity from │
+                                                         │ the conversation │
+                                                         │ via LLM call     │
+                                                         └────────┬─────────┘
+                                                                  │
+                                                    ┌─────────────┴───────────┐
+                                                    │  3+ turns AND           │
+                                                    │  clear dominant emotion?│
+                                                    ├──── YES ────────────────┤
+                                                    │                         │
+                                                    ▼                         ▼ NO
+                                           ┌────────────────┐      ┌─────────────────┐
+                                           │ prompt_builder  │      │ Return reply    │
+                                           │                 │      │ + emotion tags  │
+                                           │ Map emotion →   │      │ to mobile app   │
+                                           │ concept template│      └─────────────────┘
+                                           │ + auto-select   │
+                                           │ style           │
+                                           └───────┬─────────┘
+                                                   │
+                                                   ▼
+                                           ┌────────────────┐
+                                           │ image_service   │
+                                           │                 │
+                                           │ Generate art    │
+                                           │ via DALL-E 3    │
+                                           │ Upload to S3    │
+                                           └───────┬─────────┘
+                                                   │
+                                                   ▼
+                                           ┌────────────────────────┐
+                                           │ Return reply           │
+                                           │ + emotion tags         │
+                                           │ + image URL            │
+                                           │                        │
+                                           │ Art appears in chat    │
+                                           │ without user ever      │
+                                           │ writing a prompt       │
+                                           └────────────────────────┘
 ```
 
 ---
@@ -159,332 +282,313 @@ Build the **Reflect XR** mobile app (required by ChallengeX) and add **MindMate*
 
 ```
 InnerLens/
-├── README.md
+├── README.md                              ← you are here
 ├── LICENSE
-└── reflect-xr/
-    ├── reflectxr-backend/                # FastAPI — John & Aahil
-    │   ├── app/
-    │   │   ├── main.py                   # FastAPI app entry, CORS, router registration
-    │   │   ├── config.py                 # Pydantic settings (DB, Supabase, OpenAI, JWT)
-    │   │   ├── __init__.py
-    │   │   ├── ai/                       # AI modules — Aahil
-    │   │   │   ├── __init__.py
-    │   │   │   ├── system_prompts.py     # MindMate + emotion extraction prompts
-    │   │   │   ├── safety.py             # Crisis keyword detection + 988 fallback
-    │   │   │   └── emotion_map.py        # Emotion → concept/style mapping
-    │   │   ├── models/                   # SQLAlchemy ORM models
-    │   │   │   ├── __init__.py
-    │   │   │   ├── user.py
-    │   │   │   ├── concept.py
-    │   │   │   ├── session.py
-    │   │   │   ├── message.py
-    │   │   │   ├── generated_image.py
-    │   │   │   └── journal_entry.py
-    │   │   ├── schemas/                  # Pydantic request/response schemas
-    │   │   │   ├── __init__.py
-    │   │   │   ├── auth.py
-    │   │   │   ├── concept.py
-    │   │   │   ├── generate.py
-    │   │   │   ├── chat.py
-    │   │   │   └── journal.py
-    │   │   ├── routers/                  # FastAPI route handlers
-    │   │   │   ├── __init__.py
-    │   │   │   ├── auth.py               # POST /auth/register, /auth/login, GET /auth/me
-    │   │   │   ├── concepts.py           # GET /concepts, GET /styles
-    │   │   │   ├── generate.py           # POST /generate, POST /generate/select
-    │   │   │   ├── chat.py               # POST /chat, POST /chat/generate-from-conversation
-    │   │   │   └── journal.py            # GET /journal, GET /journal/:id, POST /journal
-    │   │   ├── services/                 # Business logic layer
-    │   │   │   ├── __init__.py
-    │   │   │   ├── auth_service.py       # JWT + Supabase auth
-    │   │   │   ├── image_service.py      # DALL-E 3 / Stability AI calls
-    │   │   │   ├── chat_service.py       # LLM conversation + context management
-    │   │   │   ├── emotion_service.py    # NLP emotion extraction + tagging
-    │   │   │   └── prompt_builder.py     # Emotion → image prompt assembly
-    │   │   ├── db/
-    │   │   │   ├── __init__.py
-    │   │   │   ├── database.py           # Async SQLAlchemy engine + session
-    │   │   │   └── seed.py               # Seed concepts, styles, prompt templates
-    │   │   └── utils/
-    │   │       ├── __init__.py
-    │   │       └── storage.py            # Supabase Storage helpers
-    │   ├── alembic/                      # Database migrations
-    │   │   ├── env.py
-    │   │   └── versions/
-    │   │       └── 001_initial.py
-    │   ├── alembic.ini
-    │   ├── nginx/
-    │   │   └── nginx.conf                # Reverse proxy config
-    │   ├── tests/
-    │   │   ├── __init__.py
-    │   │   ├── conftest.py
-    │   │   ├── test_auth.py
-    │   │   ├── test_concepts.py
-    │   │   ├── test_generate.py
-    │   │   └── test_chat.py
-    │   ├── Dockerfile                    # Python 3.11 container
-    │   ├── docker-compose.yml            # Postgres + API + NGINX
-    │   ├── requirements.txt              # Pinned dependencies
-    │   ├── .env.example                  # Environment variable template
-    │   └── .gitignore
-    │
-    └── reflectxr-mobile/                 # React Native (Expo) — Mohammed & Terina
-        ├── .env                          # EXPO_PUBLIC_API_URL
-        └── src/
-            ├── navigation/               # React Navigation setup
-            │   ├── AppNavigator.tsx       # Root navigator (auth vs main)
-            │   ├── AuthStack.tsx          # Login / Register stack
-            │   ├── MainTabs.tsx           # Bottom tab navigator
-            │   └── types.ts              # Navigation type definitions
-            ├── screens/
-            │   ├── auth/
-            │   │   ├── LoginScreen.tsx
-            │   │   └── RegisterScreen.tsx
-            │   ├── home/
-            │   │   └── HomeScreen.tsx     # Create, Learn, Reflect, MindMate cards
-            │   ├── create/
-            │   │   ├── ConceptsScreen.tsx     # Concept selection grid
-            │   │   ├── PromptDesignScreen.tsx # Template + emotion + style dropdowns
-            │   │   ├── PromptEditScreen.tsx   # Optional prompt editing
-            │   │   ├── ResponseScreen.tsx     # 2x2 generated image grid + select
-            │   │   └── ReflectScreen.tsx      # Image + journal + reflection prompt
-            │   ├── chat/
-            │   │   ├── ChatScreen.tsx         # MindMate conversation interface
-            │   │   └── ChatImageReveal.tsx    # Auto-generated art reveal animation
-            │   ├── journal/
-            │   │   ├── JournalListScreen.tsx  # Past entries with emotion tags
-            │   │   └── JournalDetailScreen.tsx
-            │   └── profile/
-            │       └── ProfileScreen.tsx
-            ├── components/
-            │   ├── ui/                    # Reusable design system components
-            │   │   ├── Button.tsx
-            │   │   ├── Card.tsx
-            │   │   ├── Input.tsx
-            │   │   ├── Dropdown.tsx
-            │   │   ├── LoadingSpinner.tsx
-            │   │   ├── EmotionTag.tsx
-            │   │   └── SafeAreaWrapper.tsx
-            │   ├── chat/
-            │   │   ├── ChatBubble.tsx
-            │   │   ├── ChatInput.tsx
-            │   │   └── TypingIndicator.tsx
-            │   ├── create/
-            │   │   ├── ConceptCard.tsx
-            │   │   ├── ImageGrid.tsx
-            │   │   ├── StylePicker.tsx
-            │   │   └── ReflectionPrompt.tsx
-            │   └── journal/
-            │       ├── JournalCard.tsx
-            │       └── EmotionTagList.tsx
-            ├── services/                  # API service layer (axios)
-            │   ├── api.ts                 # Axios instance + auth interceptor
-            │   ├── authService.ts
-            │   ├── conceptService.ts
-            │   ├── generateService.ts
-            │   ├── chatService.ts
-            │   └── journalService.ts
-            ├── hooks/
-            │   ├── useAuth.ts
-            │   ├── useChat.ts
-            │   └── useConcepts.ts
-            ├── context/
-            │   ├── AuthContext.tsx
-            │   └── ThemeContext.tsx
-            ├── theme/                     # Calming wellness design tokens
-            │   ├── index.ts
-            │   ├── colors.ts             # Muted blues, purples, warm neutrals
-            │   ├── typography.ts
-            │   └── spacing.ts
-            ├── types/                     # Shared TypeScript interfaces
-            │   ├── concept.ts
-            │   ├── chat.ts
-            │   ├── journal.ts
-            │   ├── user.ts
-            │   └── image.ts
-            ├── utils/
-            │   ├── formatDate.ts
-            │   └── emotionColors.ts
-            └── assets/
-                ├── images/
-                └── fonts/
+├── reflect-xr/
+│   ├── reflectxr-backend/                 ── John (Backend) + Aahil (AI) ──
+│   │   ├── app/
+│   │   │   ├── __init__.py
+│   │   │   ├── main.py                    # FastAPI entry point, CORS, router mounts
+│   │   │   ├── config.py                  # Pydantic settings (DB, S3, OpenAI, JWT)
+│   │   │   │
+│   │   │   ├── routers/                   # ── HTTP layer (thin — delegates to services)
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── auth.py               # POST /register, /login   GET /me
+│   │   │   │   ├── concepts.py           # GET /concepts, /styles
+│   │   │   │   ├── generate.py           # POST /generate, /generate/select
+│   │   │   │   ├── chat.py               # POST /chat, /chat/generate-from-conversation
+│   │   │   │   └── journal.py            # POST /journal   GET /journal, /journal/:id
+│   │   │   │
+│   │   │   ├── services/                  # ── Business logic (testable, no HTTP deps)
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── auth_service.py        # password hashing, JWT issue/verify
+│   │   │   │   ├── image_service.py       # call DALL-E / Stability, upload to S3
+│   │   │   │   ├── chat_service.py        # build LLM context, manage turns, call GPT
+│   │   │   │   ├── emotion_service.py     # LLM-based emotion extraction → JSON tags
+│   │   │   │   └── prompt_builder.py      # emotion + concept → assembled image prompt
+│   │   │   │
+│   │   │   ├── ai/                        # ── AI configuration (prompts, safety, maps)
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── system_prompts.py      # MindMate persona, emotion extraction rules
+│   │   │   │   ├── safety.py              # crisis keyword list + 988 fallback
+│   │   │   │   └── emotion_map.py         # emotion → concept/style lookup table
+│   │   │   │
+│   │   │   ├── models/                    # ── SQLAlchemy ORM models
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── user.py
+│   │   │   │   ├── concept.py             # includes styles + prompt templates
+│   │   │   │   ├── session.py
+│   │   │   │   ├── message.py
+│   │   │   │   ├── generated_image.py
+│   │   │   │   └── journal_entry.py
+│   │   │   │
+│   │   │   ├── schemas/                   # ── Pydantic request/response schemas
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── auth.py
+│   │   │   │   ├── concept.py
+│   │   │   │   ├── generate.py
+│   │   │   │   ├── chat.py
+│   │   │   │   └── journal.py
+│   │   │   │
+│   │   │   ├── db/                        # ── Database connection + seed data
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── database.py            # async engine + session factory
+│   │   │   │   └── seed.py               # populate concepts, styles, templates
+│   │   │   │
+│   │   │   └── utils/                     # ── Shared helpers
+│   │   │       ├── __init__.py
+│   │   │       └── storage.py             # S3/R2 upload/download helpers (boto3)
+│   │   │
+│   │   ├── alembic/                       # DB migrations
+│   │   │   ├── env.py
+│   │   │   └── versions/
+│   │   │       └── 001_initial.py
+│   │   ├── alembic.ini
+│   │   │
+│   │   ├── nginx/
+│   │   │   └── nginx.conf
+│   │   │
+│   │   ├── tests/
+│   │   │   ├── __init__.py
+│   │   │   ├── conftest.py
+│   │   │   ├── test_auth.py
+│   │   │   ├── test_concepts.py
+│   │   │   ├── test_generate.py
+│   │   │   └── test_chat.py
+│   │   │
+│   │   ├── Dockerfile
+│   │   ├── docker-compose.yml
+│   │   ├── requirements.txt
+│   │   ├── .env.example
+│   │   └── .gitignore
+│   │
+│   └── reflectxr-mobile/                  ── Mohammed (Frontend) + Terina (UX/UI) ──
+│       ├── .env
+│       └── src/
+│           ├── screens/                   # ── One file per screen, grouped by flow
+│           │   ├── auth/
+│           │   │   ├── LoginScreen.tsx
+│           │   │   └── RegisterScreen.tsx
+│           │   ├── home/
+│           │   │   └── HomeScreen.tsx
+│           │   ├── create/                # ── The core concept→image→reflect flow
+│           │   │   ├── ConceptsScreen.tsx
+│           │   │   ├── PromptDesignScreen.tsx
+│           │   │   ├── PromptEditScreen.tsx
+│           │   │   ├── ResponseScreen.tsx
+│           │   │   └── ReflectScreen.tsx
+│           │   ├── chat/                  # ── MindMate bonus feature
+│           │   │   ├── ChatScreen.tsx
+│           │   │   └── ChatImageReveal.tsx
+│           │   ├── journal/
+│           │   │   ├── JournalListScreen.tsx
+│           │   │   └── JournalDetailScreen.tsx
+│           │   └── profile/
+│           │       └── ProfileScreen.tsx
+│           │
+│           ├── components/                # ── Reusable UI atoms, grouped by domain
+│           │   ├── ui/                    # Button, Card, Input, Dropdown, etc.
+│           │   ├── chat/                  # ChatBubble, ChatInput, TypingIndicator
+│           │   ├── create/                # ConceptCard, ImageGrid, StylePicker
+│           │   └── journal/               # JournalCard, EmotionTagList
+│           │
+│           ├── services/                  # ── API layer (axios → FastAPI endpoints)
+│           │   ├── api.ts                 # axios instance + auth interceptor
+│           │   ├── authService.ts
+│           │   ├── conceptService.ts
+│           │   ├── generateService.ts
+│           │   ├── chatService.ts
+│           │   └── journalService.ts
+│           │
+│           ├── navigation/                # React Navigation setup
+│           ├── hooks/                     # useAuth, useChat, useConcepts
+│           ├── context/                   # AuthContext, ThemeContext
+│           ├── theme/                     # colors, typography, spacing
+│           ├── types/                     # TypeScript interfaces
+│           ├── utils/                     # formatDate, emotionColors
+│           └── assets/                    # images, fonts
+│
+└── docs/                                  ── Deliverable documentation ──
+    ├── MODULE-1-FRONTEND.md
+    ├── MODULE-2-BACKEND.md
+    ├── MODULE-3-AI.md
+    ├── MODULE-4-MINDMATE-ALEXA.md
+    ├── MODULE-5-UX-TESTING.md
+    ├── user-testing/
+    └── presentation/
 ```
 
 ---
 
-## Team Assignments
+## Team
 
-### Mohammed Abdur Rahman — Frontend Lead
-**Skills:** React Native, Swift, iOS, Docker, System Design
-**Previous:** Software Engineer Intern @ Apple
-
-**Responsibilities:**
-- Own the React Native (Expo) codebase end-to-end
-- Set up the Expo project with TypeScript and React Navigation
-- Build all screen components using Terina's Figma designs
-- Create the API service layer (`src/services/api.ts`) that connects to John's FastAPI endpoints
-- Build the MindMate Chat screen — FlatList of message bubbles that POSTs to `/chat`
-- Handle loading states, error handling, and offline behavior
-- Coordinate with John on API request/response contracts
-
-**Week-by-Week:**
-| Week | Deliverables |
-|------|-------------|
-| 1 | Expo project init, navigation structure, stub screens, API service layer |
-| 2 | Concepts screen, Prompt Design screen wired to `/concepts` and `/generate` |
-| 3 | Response screen (image grid + selection), connect to image generation pipeline |
-| 4 | MindMate Chat screen UI, wire to `/chat` endpoint, auto-image reveal flow |
-| 5 | Bug fixes, loading/error states, polish transitions and animations |
-| 6 | Alexa integration support (if time), final testing on iOS + Android |
+| Name | Role | Key Skills | Strengths to Leverage |
+|------|------|------------|----------------------|
+| Mohammed Abdur Rahman | Frontend Lead | React Native, Swift, iOS, Docker, System Design | Apple intern — production-grade mobile patterns |
+| John Lizama | Backend Lead | FastAPI, PostgreSQL, Docker, NGINX, Cloud, System Architecture | 1st Place ChallengeX 2025 — knows what judges want |
+| Aahil Shaik | AI/ML Lead | Python, AWS, LLM Integration, AI Prompting, Cloud | 1st Place ChallengeX 2025 — strong on AI integration |
+| Terina Ishaqzai | UX/UI Lead + Frontend Support | UI/UX Design, React Native, DevOps, Graphical Design | DermaLens hackathon — fast UI iteration |
 
 ---
 
-### John Lizama — Backend Lead
-**Skills:** FastAPI, PostgreSQL, Docker, NGINX, Cloud, System Architecture
-**Previous:** 1st Place ChallengeX 2025
+## 9-Week Schedule (Realistic for Working Students)
 
-**Responsibilities:**
-- Own the entire FastAPI server, database schema, and Docker deployment
-- Build all API endpoints (auth, concepts, generate, chat, journal)
-- Set up PostgreSQL with Supabase, write the Alembic migrations
-- Dockerize the full stack (API + Postgres + NGINX) from day one
-- Integrate Aahil's AI modules into the service layer
-- Deploy to cloud (Railway/Render/AWS)
+Each week assumes ~8-12 hours per person. Weekends are the primary work blocks. Wednesday evening is the sync meeting.
 
-**API Endpoints to Build:**
+### Phase 1: Foundation (Weeks 1-2)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/auth/register` | Create new user account |
-| POST | `/auth/login` | Authenticate, return JWT |
-| GET | `/auth/me` | Get current user profile |
-| GET | `/concepts` | List all concept cards with prompt templates |
-| GET | `/styles` | List available art styles |
-| POST | `/generate` | Assemble prompt → call image API → return images |
-| POST | `/generate/select` | Mark selected image for a session |
-| POST | `/chat` | Send message → LLM reply + emotion extraction |
-| POST | `/chat/generate-from-conversation` | Auto-generate art from chat emotions |
-| GET | `/journal` | List user's journal entries |
-| GET | `/journal/:id` | Get single journal entry |
-| POST | `/journal` | Save reflection + link to image + emotion tags |
+**Goal:** Every team member can run the app locally. Backend returns real data. Frontend renders real screens.
 
-**Week-by-Week:**
-| Week | Deliverables |
-|------|-------------|
-| 1 | FastAPI scaffold, Docker Compose, Supabase setup, DB schema, `/health` endpoint |
-| 2 | `/auth/*` endpoints, `/concepts` + `/styles` with seed data |
-| 3 | `/generate` endpoint wired to image API, Supabase Storage integration |
-| 4 | `/chat` endpoint, session management, integrate Aahil's chat engine + emotion extraction |
-| 5 | `/journal` CRUD, emotion tagging on entries, `/chat/generate-from-conversation` |
-| 6 | Cloud deployment, Alexa webhook (stretch), load testing |
+| Person | Week 1 | Week 2 |
+|--------|--------|--------|
+| **Mohammed** | Init Expo project with TypeScript. Set up React Navigation (AuthStack + MainTabs). Create stub screens that render their names. Push to GitHub. | Build HomeScreen with "Create" card (matches mockup). Build ConceptsScreen with hardcoded concept buttons. Wire to navigation. |
+| **John** | Scaffold FastAPI. Write `docker-compose.yml`. Create all SQLAlchemy models. Run first Alembic migration. `GET /health` returns 200. | Build `GET /concepts` + `GET /styles` (returns seeded data from DB). Build `POST /auth/register` + `POST /auth/login` (JWT). Deploy dev instance. |
+| **Aahil** | Get OpenAI API key. Write standalone Python script that sends a prompt to DALL-E 3 and saves the image. Test 5 concept prompts from the brief. | Write standalone script that sends a conversation to GPT-4o with the MindMate system prompt. Validate tone and response length. |
+| **Terina** | Create Figma mockups for: Home, Concepts, Prompt Design, Prompt Edit. Use the sponsor's mockups as the baseline. Define color palette + typography. | Build `Button`, `Card`, `Input`, `Dropdown` components in `src/components/ui/`. Start `ConceptCard` component. |
 
----
+**Milestone check (end of Week 2):** App runs on phones via Expo Go. `docker-compose up` starts Postgres + API. `GET /concepts` returns the 14 concepts from the brief. All 4 people have committed code.
 
-### Aahil Shaik — AI/ML Lead
-**Skills:** Python, AWS, LLM Integration, AI Prompting
-**Previous:** 1st Place ChallengeX 2025
+### Phase 2: Core Pipeline (Weeks 3-4)
 
-**Responsibilities:**
-- Own all AI logic that the backend calls
-- Design and iterate the MindMate system prompt (3 modes: check-in, grounding, reflection)
-- Build the emotion extraction pipeline (LLM-based NLP to extract emotions + intensity)
-- Build the prompt builder that maps emotions → concept art prompts automatically
-- Implement crisis keyword detection + 988 fallback safety module
-- Build the Alexa Custom Skill (stretch goal)
+**Goal:** A user can go from Home → Concepts → Prompt Design → Prompt Edit → Response (4 images) → Reflect (journal). This is the required ChallengeX flow.
 
-**Modules to Build:**
+| Person | Week 3 | Week 4 |
+|--------|--------|--------|
+| **Mohammed** | Build PromptDesignScreen: show concept template, emotion dropdown, style dropdown, "Next" button. Build PromptEditScreen: editable text field + "Submit" button. | Build ResponseScreen: 2x2 image grid with tap-to-select. Build ReflectScreen: selected image + reflection question carousel + journal text input + save button. |
+| **John** | Build `POST /generate`: accept prompt + style → call image service → store 4 images in S3 → return URLs. Build `POST /generate/select`: mark chosen image. | Build `POST /journal`: save journal entry with linked image + session. Build `GET /journal` + `GET /journal/:id`. Wire emotion tags to journal entries. |
+| **Aahil** | Integrate image generation into `image_service.py`. Handle DALL-E 3 response parsing, S3 upload, thumbnail generation. Error handling for rate limits. | Build `emotion_service.py`: takes journal text → calls GPT with extraction prompt → returns JSON emotion tags. Integrate into journal save flow. |
+| **Terina** | Build `StylePicker`, `ImageGrid`, `ReflectionPrompt` components. Design the Prompt Edit and Response screens in Figma (if not done). | Build the ReflectScreen UI end-to-end (most design-sensitive screen). Design the emotion tag chips. Start `JournalCard` component. |
 
-| Module | File | Purpose |
-|--------|------|---------|
-| Chat Engine | `app/services/chat_service.py` | System prompt, conversation context (last 5 turns), LLM API call |
-| Emotion Extractor | `app/services/emotion_service.py` | Secondary LLM call to extract emotion + intensity JSON |
-| Prompt Builder | `app/services/prompt_builder.py` | Map extracted emotions → concept templates → image prompts |
-| Emotion Map | `app/ai/emotion_map.py` | Emotion keyword → concept/style lookup table |
-| Safety Filter | `app/ai/safety.py` | Crisis keyword check, short-circuit to 988 response |
-| System Prompts | `app/ai/system_prompts.py` | MindMate personality + emotion extraction instructions |
+**Milestone check (end of Week 4):** The full Create flow works end-to-end. A user picks "Emotional Waves", selects "worry", picks "watercolor", edits the prompt, submits, sees 4 images, picks one, writes a journal entry with a reflection question, and it saves. This satisfies R1-R7.
 
-**Week-by-Week:**
-| Week | Deliverables |
-|------|-------------|
-| 1 | Get API keys, test LLM + image gen in standalone scripts, finalize system prompt |
-| 2 | Emotion extraction module, test with sample conversations |
-| 3 | Prompt builder (emotion → art prompt), integrate into `/generate` |
-| 4 | Wire chat engine into `/chat`, auto-image trigger logic after 3+ exchanges |
-| 5 | Crisis detection + 988 fallback, session memory (last 5 turns), edge case testing |
-| 6 | Alexa Custom Skill (stretch), demo prep with example conversations |
+### Phase 3: MindMate + Polish (Weeks 5-6)
+
+**Goal:** MindMate chatbot works. Emotion tags appear on journal entries. App feels polished.
+
+| Person | Week 5 | Week 6 |
+|--------|--------|--------|
+| **Mohammed** | Build ChatScreen: FlatList of message bubbles, text input, send button. Wire to `POST /chat`. Handle loading states + typing indicator. | Build ChatImageReveal screen (when chat auto-generates art). Build JournalListScreen + JournalDetailScreen. Show emotion tags on journal cards. |
+| **John** | Build `POST /chat`: receive message → call chat_service → return reply + emotion tags. Session management (create session on first message, store messages). | Build `POST /chat/generate-from-conversation`: when `should_generate_image=true`, auto-run prompt builder + image service. Return image URL in chat response. |
+| **Aahil** | Wire `chat_service.py`: system prompt + conversation context (last 5 turns) + user message → GPT-4o. Wire `safety.py` check before every LLM call. | Build `prompt_builder.py`: take extracted emotions → map to closest concept template → assemble image prompt → select style. This is the auto-generation logic. |
+| **Terina** | Build `ChatBubble`, `ChatInput`, `TypingIndicator` components. Design the chat-to-art reveal interaction in Figma. | Polish all screens: loading skeletons, error states, empty states. Ensure the calming aesthetic is consistent. Accessibility pass (font sizes, contrast). |
+
+**Milestone check (end of Week 6):** MindMate works. User says "I've been stressed about school" → gets empathetic reply → after 3+ turns, art auto-generates in the chat. Journal entries show emotion tags.
+
+### Phase 4: Testing + Delivery (Weeks 7-9)
+
+**Goal:** User testing done. Documentation complete. Demo rehearsed. Everything polished.
+
+| Person | Week 7 | Week 8 | Week 9 |
+|--------|--------|--------|--------|
+| **Mohammed** | Bug fixes from user testing. Add LoginScreen + RegisterScreen. Profile screen. | Alexa support: help John test voice → chat → art flow if time allows. Final bug fixes. | Demo rehearsal. Make sure the demo flow works perfectly on a physical device. |
+| **John** | Fix bugs from user testing. Add rate limiting middleware. Clean up error responses. Write API documentation. | Alexa Custom Skill (stretch): Lambda function that POSTs to `/chat` endpoint. Even a basic 60-second voice demo is impressive. | Cloud deployment (Railway/Render). Final smoke tests. Write setup instructions for `docs/`. |
+| **Aahil** | Tune system prompt based on user testing feedback. Edge case testing: long conversations, unusual emotions, empty inputs. | Alexa: pair with John on voice skill. Test emotion extraction accuracy with real user test data. | Write AI architecture documentation. Prepare talking points about NLP + emotion detection for judges. |
+| **Terina** | **Lead user testing: 3-5 testers.** Write test script. Collect feedback via forms. Compile insights document. | Iterate on UX based on feedback. Create presentation slides. Write 2-page project summary report (required deliverable). | Final presentation polish. Rehearse demo. Ensure all documentation is complete. |
+
+**Final deliverables (Week 9):**
+- Functional mobile prototype (R1)
+- AI image generation working (R2)
+- Emotion input + journaling + reflection (R3, R4)
+- Emotional tagging via NLP (R5, R6)
+- Calming UI/UX design (R7)
+- User testing report with insights (R8)
+- Architecture + API + setup documentation (R9)
+- Final presentation + demo (R10)
+- MindMate chatbot (Bonus)
+- Alexa skill if time allows (Bonus)
 
 ---
 
-### Terina Ishaqzai — UX/UI Lead + Frontend Support
-**Skills:** UI/UX Design, React Native, DevOps, Graphical Design
-**Previous:** DermaLens Hackathon Project
+## Concept Data (From Sponsor Brief)
 
-**Responsibilities:**
-- Own the design system and visual identity (calming, wellness-focused aesthetic)
-- Create all Figma mockups before Mohammed builds each screen
-- Build the reusable component library (`src/components/ui/*`)
-- Own the Reflect/Journal screen end-to-end (most design-sensitive screen)
-- Design the MindMate chat-to-art reveal interaction
-- Lead user testing sessions (3-5 testers, required deliverable)
+These are the exact concepts, prompt templates, dropdown options, and reflection questions from the requirements document. They must be seeded into the database via `app/db/seed.py`.
 
-**Design System:**
-- Color palette: muted blues, gentle purples, warm neutrals (see `src/theme/colors.ts`)
-- Typography: clean, readable, calming (see `src/theme/typography.ts`)
-- Spacing: generous whitespace, rounded corners (see `src/theme/spacing.ts`)
-- Components: `Button`, `Card`, `Input`, `Dropdown`, `EmotionTag`, `ConceptCard`, `ChatBubble`
+| # | Concept | Prompt Template | Dropdown Options | Reflection Question |
+|---|---------|----------------|-----------------|-------------------|
+| A | Emotional Waves | "Create waves of [DROPDOWN] that rise and then gently fade into calm water." | worry, self-doubt, longing, overwhelm, restlessness, pressure, expectation, emotion, energy | "What helps this feeling or state soften and settle over time?" |
+| B | A Safe Space | "Visualize [DROPDOWN] as a space — vast, empty, or waiting." | loneliness, grief, uncertainty, longing, emptiness, waiting, stillness, silence | "What do you wish could enter that space?" |
+| C | Bright Horizon | "Show [DROPDOWN] as a bright sun emerging over the horizon." | hope, clarity, courage, joy, strength, love, possibility, renewal, resilience | "Where in your life do you feel [selected word] shining through?" |
+| D | Inner Garden | "Illustrate [DROPDOWN] as a colorful garden that grows when tended." | gratitude, kindness, self-confidence, patience, love, understanding, hope, trust, creativity, self-love, commitment | "What helps this quality grow in your life?" |
+| E | Harmony | "Create an image where [DROPDOWN] exist in harmony." | light and shadow, joy and sorrow, strength and vulnerability, peace and chaos, clarity and confusion, growth and rest, presence and longing | "How do you hold both [selected contrast] in your life without needing to choose one over the other?" |
 
-**Week-by-Week:**
-| Week | Deliverables |
-|------|-------------|
-| 1 | Figma mockups for all screens, color palette, component library start |
-| 2 | Build `Button`, `Card`, `Input`, `Dropdown`, `ConceptCard`, `StylePicker` |
-| 3 | Response screen (ImageGrid + selection UI), Reflect screen (journal + image) |
-| 4 | Chat UI design, `ChatBubble`, `ChatInput`, `TypingIndicator`, art reveal animation |
-| 5 | User testing with 3-5 people, feedback collection, UX iteration |
-| 6 | Final polish, presentation slides, 2-page project summary report |
+Additional concepts listed in the brief (need prompt templates designed by Aahil): Resilience, Journey, Masks We Wear, Crossroads, Future Self, Bridges, Friendship, Growing Roots, Letting Go, Garden of Peace, Rising from Ashes.
+
+## Style Options (From Sponsor Brief)
+
+These must be seeded into the styles table and shown in the "Pick a Style" dropdown.
+
+**Artistic Mediums:** Watercolor, Oil painting, Sketch/Pencil, Pastel, Collage, Ink/Line art
+
+**Mood/Tone:** Dreamlike/Surreal, Abstract/Expressionist, Realistic, Minimalist, Symbolic/Archetypal, Whimsical/Playful
+
+**Other Styles:** Cosmic/Spiritual, Mythological/Archetypal, Mandala/Sacred Geometry, Pop Art, Photorealism, Fantasy/Magical, Dark/Moody, Light/Airy
 
 ---
 
 ## Database Schema
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌────────────────────┐
-│    users     │     │    concepts      │     │     sessions       │
-├──────────────┤     ├──────────────────┤     ├────────────────────┤
-│ id (UUID PK) │     │ id (UUID PK)     │     │ id (UUID PK)       │
-│ email        │     │ title            │     │ user_id (FK users) │
-│ display_name │     │ slug             │     │ concept_id (FK)    │
-│ hashed_pw    │     │ prompt_template  │     │ source (concept/   │
-│ preferred_   │     │ dropdown_label   │     │   chat/freeform)   │
-│   style      │     │ dropdown_options │     │ created_at         │
-│ created_at   │     │ reflection_prompt│     │ updated_at         │
-└──────┬───────┘     │ category         │     └──────┬─────────────┘
-       │             └──────────────────┘            │
-       │                                             │
-       │         ┌───────────────────┐               │
-       │         │    messages       │               │
-       │         ├───────────────────┤               │
-       │         │ id (UUID PK)      │               │
-       └────────▶│ session_id (FK)   │◀──────────────┘
-                 │ role (user/asst)  │
-                 │ content           │       ┌────────────────────┐
-                 │ emotion_tags JSON │       │ generated_images   │
-                 │ created_at        │       ├────────────────────┤
-                 └───────────────────┘       │ id (UUID PK)       │
-                                             │ session_id (FK)    │
-       ┌─────────────────────┐               │ prompt_used        │
-       │  journal_entries    │               │ style_used         │
-       ├─────────────────────┤               │ image_url          │
-       │ id (UUID PK)        │               │ thumbnail_url      │
-       │ user_id (FK users)  │               │ is_selected (bool) │
-       │ image_id (FK images)│◀──────────────│ source             │
-       │ session_id (FK)     │               │ created_at         │
-       │ content             │               └────────────────────┘
-       │ reflection_prompt   │
-       │ emotion_tags JSON   │
-       │ word_count          │
-       │ created_at          │
-       └─────────────────────┘
+┌──────────────────┐
+│      users       │
+├──────────────────┤
+│ id         UUID PK
+│ email      VARCHAR UNIQUE
+│ display_name VARCHAR
+│ hashed_password VARCHAR
+│ preferred_style  VARCHAR NULL
+│ created_at TIMESTAMP
+│ updated_at TIMESTAMP
+└────────┬─────────┘
+         │ 1
+         │
+         │ N
+┌────────▼─────────┐     ┌──────────────────┐     ┌──────────────────┐
+│    sessions      │     │    concepts       │     │     styles       │
+├──────────────────┤     ├──────────────────┤     ├──────────────────┤
+│ id        UUID PK│     │ id        UUID PK│     │ id        UUID PK│
+│ user_id   FK→user│     │ title     VARCHAR│     │ name      VARCHAR│
+│ concept_id FK→con│     │ slug      VARCHAR│     │ category  VARCHAR│
+│ source    ENUM   │     │ prompt_template  │     │   (medium, mood, │
+│  (concept/chat/  │     │ dropdown_label   │     │    other)        │
+│   freeform)      │     │ dropdown_options  │     └──────────────────┘
+│ created_at       │     │   JSONB          │
+│ updated_at       │     │ reflection_prompt│
+└──┬───────────┬───┘     │ category VARCHAR │
+   │           │         └──────────────────┘
+   │ 1         │ 1
+   │           │
+   │ N         │ N
+┌──▼───────┐ ┌─▼────────────────┐
+│ messages │ │ generated_images  │
+├──────────┤ ├──────────────────┤
+│ id    PK │ │ id          PK   │
+│ session_id│ │ session_id  FK   │
+│ role ENUM│ │ prompt_used      │
+│ (user/   │ │ style_used       │
+│  asst)   │ │ image_url VARCHAR│
+│ content  │ │ thumbnail_url    │
+│ emotion_ │ │ is_selected BOOL │
+│  tags    │ │ source ENUM      │
+│  JSONB   │ │ created_at       │
+│ created_ │ └──────────┬───────┘
+│  at      │            │ 1
+└──────────┘            │
+                        │ N (0..1 per image)
+              ┌─────────▼────────┐
+              │  journal_entries  │
+              ├──────────────────┤
+              │ id           PK  │
+              │ user_id      FK  │
+              │ session_id   FK  │
+              │ image_id     FK  │
+              │ content      TEXT│
+              │ reflection_  TEXT│
+              │  prompt_used     │
+              │ emotion_tags     │
+              │  JSONB           │
+              │ word_count   INT │
+              │ created_at       │
+              └──────────────────┘
 ```
 
 ---
@@ -492,44 +596,67 @@ InnerLens/
 ## Getting Started
 
 ```bash
-# 1. Clone the repo
+# 1. Clone
 git clone https://github.com/your-org/InnerLens.git
 cd InnerLens/reflect-xr
 
-# 2. Backend — start Postgres + API + NGINX
+# 2. Backend
 cd reflectxr-backend
-cp .env.example .env          # Fill in your API keys
-docker-compose up -d           # Starts db, api, nginx
-
-# 3. Verify backend is running
+cp .env.example .env            # Fill in your real API keys
+docker-compose up -d             # Starts Postgres + API + NGINX
 curl http://localhost:8000/health
 # → {"status": "ok", "service": "reflectxr-api"}
 
-# 4. Frontend — start Expo dev server
+# 3. Run migrations + seed
+docker-compose exec api alembic upgrade head
+docker-compose exec api python -m app.db.seed
+
+# 4. Frontend
 cd ../reflectxr-mobile
 npm install
-npx expo start                 # Scan QR code with Expo Go app
+npx expo start                   # Scan QR with Expo Go
 
-# 5. Run backend tests
+# 5. Tests
 cd ../reflectxr-backend
-pytest tests/
+docker-compose exec api pytest tests/ -v
 ```
 
 ---
 
-## Key Features
+## Separation of Concerns — Module Guide Index
 
-1. **Concept-Based Art Generation** — Users pick a concept (Safe Space, Emotional Waves, Resilience, Journey, Inner Garden), select an emotion + style, and get AI-generated art
-2. **MindMate AI Chatbot** — Conversational AI that detects emotions and auto-generates art without user prompts (the differentiator)
-3. **Reflection Journal** — Users write about their chosen images, with NLP-based emotion tagging
-4. **Crisis Safety** — Keyword detection that short-circuits to 988 Suicide & Crisis Lifeline
-5. **Alexa Voice Integration** — (Stretch) Hands-free MindMate conversations via Echo device
+Each module has its own detailed guide in `docs/`. These are written for you to work independently without blocking each other.
+
+| Guide | Owner(s) | What It Covers |
+|-------|----------|---------------|
+| [MODULE-1-FRONTEND.md](docs/MODULE-1-FRONTEND.md) | Mohammed + Terina | Expo setup, navigation, every screen spec, component API contracts, how to call the backend |
+| [MODULE-2-BACKEND.md](docs/MODULE-2-BACKEND.md) | John | FastAPI structure, every endpoint contract (request/response), database models, S3 integration, Docker |
+| [MODULE-3-AI.md](docs/MODULE-3-AI.md) | Aahil | System prompts, emotion extraction, prompt builder logic, safety module, testing AI outputs |
+| [MODULE-4-MINDMATE-ALEXA.md](docs/MODULE-4-MINDMATE-ALEXA.md) | Aahil + John | MindMate chat flow, auto-generation trigger, Alexa Custom Skill setup |
+| [MODULE-5-UX-TESTING.md](docs/MODULE-5-UX-TESTING.md) | Terina | Design system, Figma workflow, user testing plan, feedback form template, insights report format |
 
 ---
 
-## Demo Script (3 minutes)
+## Demo Script (3 minutes — for sponsors)
 
-1. Open app → pick "Emotional Waves" concept → select "worry" + "watercolor" → generate → select image → write reflection *(shows required ChallengeX functionality)*
-2. Open MindMate → say "I've been really stressed about school" → get empathetic reply → watch art auto-generate *(shows the differentiator — art without prompting)*
-3. Show journal → emotion tags visible on entries *(shows NLP requirement)*
-4. *(Stretch)* Alexa demo: "Alexa, open MindMate" → quick voice conversation
+1. **(60s) Core flow:** Open app → tap Create → pick "Emotional Waves" → select "worry" → pick "Watercolor" → edit prompt → Submit → see 4 generated images → select one → write reflection → save. *This demonstrates R1-R7.*
+
+2. **(60s) MindMate:** Open MindMate chat → type "I've been really stressed about school lately" → get empathetic response → continue conversation → after 3 turns, art automatically generates in the chat based on detected emotions. *This is the wow moment — art without prompting.*
+
+3. **(30s) Journal + NLP:** Open journal history → show saved entries with emotion tags (anxiety 0.8, hope 0.4) displayed as colored chips → tap an entry to see the linked image. *Demonstrates R5, R6.*
+
+4. **(30s) Stretch:** If Alexa works: "Alexa, open MindMate" → quick voice exchange → art generates. If not, show the architecture slide explaining how it would work.
+
+---
+
+## Key Decisions Log
+
+| Decision | Chosen | Why |
+|----------|--------|-----|
+| Database | PostgreSQL + SQLAlchemy (not Supabase) | Full control. Demonstrates real engineering. Alembic migrations for versioned schema changes. |
+| Object storage | S3-compatible (Cloudflare R2 or AWS S3) | Generated images need persistent storage. R2 has free egress. boto3 is the standard Python SDK. |
+| Auth | JWT via python-jose (not Firebase/Supabase Auth) | We own the auth flow. Simpler to debug. No vendor dependency. |
+| Image API | DALL-E 3 first, Stability AI fallback | DALL-E 3 is fastest to integrate. Stability gives more artistic control if we need it. |
+| Chat LLM | GPT-4o | Best conversational quality for empathetic MindMate responses. Cheaper than GPT-4 Turbo. |
+| Mobile framework | React Native + Expo | Cross-platform (iOS + Android as required). Mohammed has RN experience. Expo handles build config. |
+| Deployment | Docker Compose (dev), Railway/Render (prod) | One command to run locally. Free tier cloud hosting for demo. |
