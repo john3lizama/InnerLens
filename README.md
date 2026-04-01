@@ -664,5 +664,5 @@ Each module has its own detailed guide in `docs/`. These are written for you to 
 ## Authors
 - Mohammed Abdur Rahman
 - Aahil Shaik
-- Aahil's Assistant (John Lizama)
+- John Lizama
 - Terina Ishaqzai
