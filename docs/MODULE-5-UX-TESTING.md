@@ -228,4 +228,4 @@ Save in `docs/presentation/project-summary.md`. Must include:
 - Features implemented
 - User testing methodology and findings
 - Challenges and how they were resolved
-- Future recommendations
+- Future recommodation 
