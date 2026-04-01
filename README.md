@@ -660,3 +660,6 @@ Each module has its own detailed guide in `docs/`. These are written for you to 
 | Chat LLM | GPT-4o | Best conversational quality for empathetic MindMate responses. Cheaper than GPT-4 Turbo. |
 | Mobile framework | React Native + Expo | Cross-platform (iOS + Android as required). Mohammed has RN experience. Expo handles build config. |
 | Deployment | Docker Compose (dev), Railway/Render (prod) | One command to run locally. Free tier cloud hosting for demo. |
+
+## Authors
+- Mohammed Abdur Rahman
