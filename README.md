@@ -1,7 +1,9 @@
 # InnerLens — ReflectXR + MindMate
 
 **Title:** *Developing an Emotion-Based Generative AI Mobile Experience for Arts & Wellness*
+
 **Sponsor:** Persistent Technology, Inc.
+
 **Timeline:** 8 weeks.
 
 ReflectXR is a cross-platform mobile app that lets users select or describe an emotion, generate AI artwork from that emotion, and reflect on the result through creative journaling. MindMate is our team's original addition — a conversational AI companion that detects emotions from natural conversation and generates art automatically, without the user ever writing a prompt.
