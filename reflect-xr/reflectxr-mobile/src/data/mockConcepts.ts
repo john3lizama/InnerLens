@@ -1,0 +1,63 @@
+import { Concept } from '../types/concept';
+
+export const mockConcepts: Concept[] = [
+  {
+    id: 'concept-a',
+    title: 'Emotional Waves',
+    slug: 'emotional-waves',
+    prompt_template: 'Create waves of [DROPDOWN] that rise and then gently fade into calm water.',
+    dropdown_label: 'Inner State',
+    dropdown_options: ['worry', 'self-doubt', 'longing', 'overwhelm', 'restlessness', 'pressure', 'expectation', 'emotion', 'energy'],
+    reflection_prompt: 'What helps this feeling or state soften and settle over time?',
+    category: 'core',
+  },
+  {
+    id: 'concept-b',
+    title: 'A Safe Space',
+    slug: 'safe-space',
+    prompt_template: 'Visualize [DROPDOWN] as a space — vast, empty, or waiting.',
+    dropdown_label: 'Feeling',
+    dropdown_options: ['loneliness', 'grief', 'uncertainty', 'longing', 'emptiness', 'waiting', 'stillness', 'silence'],
+    reflection_prompt: 'What do you wish could enter that space?',
+    category: 'core',
+  },
+  {
+    id: 'concept-c',
+    title: 'Bright Horizon',
+    slug: 'bright-horizon',
+    prompt_template: 'Show [DROPDOWN] as a bright sun emerging over the horizon.',
+    dropdown_label: 'Quality',
+    dropdown_options: ['hope', 'clarity', 'courage', 'joy', 'strength', 'love', 'possibility', 'renewal', 'resilience'],
+    reflection_prompt: 'Where in your life do you feel this quality shining through?',
+    category: 'core',
+  },
+  {
+    id: 'concept-d',
+    title: 'Inner Garden',
+    slug: 'inner-garden',
+    prompt_template: 'Illustrate [DROPDOWN] as a colorful garden that grows when tended.',
+    dropdown_label: 'Quality',
+    dropdown_options: ['gratitude', 'kindness', 'self-confidence', 'patience', 'love', 'understanding', 'hope', 'trust', 'creativity', 'self-love', 'commitment'],
+    reflection_prompt: 'What helps this quality grow in your life?',
+    category: 'core',
+  },
+  {
+    id: 'concept-e',
+    title: 'Harmony',
+    slug: 'harmony',
+    prompt_template: 'Create an image where [DROPDOWN] exist in harmony.',
+    dropdown_label: 'Pair',
+    dropdown_options: ['light and shadow', 'joy and sorrow', 'strength and vulnerability', 'peace and chaos', 'clarity and confusion', 'growth and rest', 'presence and longing'],
+    reflection_prompt: 'How do you hold both sides in your life without needing to choose one over the other?',
+    category: 'core',
+  },
+];
+
+// Emoji/icon mapping for concept cards
+export const conceptIcons: Record<string, string> = {
+  'emotional-waves': '🌊',
+  'safe-space': '🏡',
+  'bright-horizon': '🌅',
+  'inner-garden': '🌿',
+  'harmony': '☯️',
+};

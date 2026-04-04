@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "ReflectXR",
+    "slug": "reflectxr",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#FAFAF8",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.innerlens.reflectxr"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FAFAF8"
+      },
+      "package": "com.innerlens.reflectxr"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font"
+    ]
+  }
+}
