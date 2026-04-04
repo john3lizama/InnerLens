@@ -1,0 +1,27 @@
+node_modules/
+.expo/
+dist/
+web-build/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Signing
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Patches
+*.orig.*
+
+# OS
+.DS_Store
+
+# Debug logs
+npm-debug.log*
+yarn-error.log*
+yarn-debug.log*
