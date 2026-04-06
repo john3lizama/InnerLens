@@ -55,4 +55,5 @@ class JournalEntry(Base):
 
     # ── Relationships ────────────────────────────────────────────────────
     user: Mapped["User"] = relationship(back_populates="journal_entries")
+    session: Mapped["Session"] = relationship(back_populates="journal_entries")
     image: Mapped["GeneratedImage"] = relationship()

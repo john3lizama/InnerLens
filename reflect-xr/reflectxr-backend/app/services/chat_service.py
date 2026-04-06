@@ -21,8 +21,11 @@ from openai import AsyncOpenAI
 from app.config import settings
 from app.models.session import Session
 from app.models.message import Message
+from app.models.generated_image import GeneratedImage
+from app.models.concept import Concept
 from app.ai.safety import check_crisis
 from app.ai.system_prompts import MINDMATE_SYSTEM_PROMPT
+from app.ai.emotion_map import EMOTION_TO_CONCEPT, DEFAULT_CONCEPT
 from app.services.emotion_service import extract_emotions
 from app.services.prompt_builder import build_prompt_from_emotions
 from app.services.image_service import generate_and_store_images
@@ -126,10 +129,19 @@ async def handle_chat_message(
     dominant_intensity = max(
         (e["intensity"] for e in emotion_tags), default=0
     )
+
+    # Check if this session already produced a generated image
+    existing_img = await db.execute(
+        select(GeneratedImage)
+        .where(GeneratedImage.session_id == session_id)
+        .limit(1)
+    )
+    has_existing_image = existing_img.scalar_one_or_none() is not None
+
     should_generate = (
         user_msg_count >= 3
         and dominant_intensity >= 0.7
-        # TODO: check if session already has a generated image
+        and not has_existing_image
     )
 
     return {
@@ -170,20 +182,36 @@ async def generate_from_conversation(
     # Use prompt_builder to convert emotions into an image prompt
     prompt, style = await build_prompt_from_emotions(emotions)
 
-    # Generate 1 image (not 4 — this is auto-generation, not the full flow)
-    # We need a concept_id — use a default one
-    # TODO: map emotions to actual concept IDs from the database
+    # Resolve the concept_id from the dominant emotion via the emotion map
+    dominant_emotion = (
+        max(emotions, key=lambda e: e["intensity"])["emotion"]
+        if emotions else None
+    )
+    concept_slug = (
+        EMOTION_TO_CONCEPT.get(dominant_emotion, DEFAULT_CONCEPT)["concept"]
+        if dominant_emotion else DEFAULT_CONCEPT["concept"]
+    )
+    concept_row = await db.execute(
+        select(Concept).where(Concept.slug == concept_slug)
+    )
+    concept = concept_row.scalar_one_or_none()
+    # Fall back to any concept if the slug isn't seeded yet
+    if concept is None:
+        fallback = await db.execute(select(Concept).limit(1))
+        concept = fallback.scalar_one_or_none()
+    concept_id = concept.id if concept else uuid.uuid4()
+
     gen_result = await generate_and_store_images(
         db=db,
         user_id=user_id,
         prompt=prompt,
         style=style,
-        concept_id=uuid.uuid4(),  # Placeholder — wire to real concept
+        concept_id=concept_id,
         count=1,
     )
 
     return {
-        "image": gen_result["images"][0] if gen_result["images"] else {},
+        "image": gen_result["images"][0] if gen_result["images"] else None,
         "emotion_summary": emotions,
     }
 

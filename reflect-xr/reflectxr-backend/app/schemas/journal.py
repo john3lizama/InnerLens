@@ -46,7 +46,7 @@ class JournalListItem(BaseModel):
     id: UUID
     content: str                    # Truncated to 100 characters
     emotion_tags: list[EmotionTag]
-    image: JournalImageSummary
+    image: JournalImageSummary | None
     created_at: datetime
     word_count: int
 
@@ -62,7 +62,7 @@ class JournalDetailResponse(BaseModel):
     id: UUID
     content: str                    # Full text (not truncated)
     emotion_tags: list[EmotionTag]
-    image: JournalImageSummary
+    image: JournalImageSummary | None
     reflection_prompt_used: str | None
     created_at: datetime
     word_count: int

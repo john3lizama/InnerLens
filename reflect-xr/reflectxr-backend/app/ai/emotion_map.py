@@ -90,12 +90,6 @@ EMOTION_TO_CONCEPT = {
         "prompt_template": "Depict [DROPDOWN] as a heavy object the person is carrying on a long road.",
     },
 
-    # ── TODO: Add mappings for Aahil's 11 extended concepts ─────────────
-    # "resilience":    { "concept": "resilience", ... },
-    # "confusion":     { "concept": "crossroads", ... },
-    # "nostalgia":     { "concept": "journey", ... },
-    # etc.
-
     # ── Resilience ───────────────────────────────────────────────────────
     "courage": {
         "concept": "resilience",

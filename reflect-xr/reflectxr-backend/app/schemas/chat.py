@@ -10,6 +10,7 @@ The chat flow:
 
 from pydantic import BaseModel
 from uuid import UUID
+from app.schemas.generate import GeneratedImageResponse
 
 
 # ── Shared types ─────────────────────────────────────────────────────────
@@ -47,5 +48,7 @@ class ChatResponse(BaseModel):
 
 class ChatGenerateResponse(BaseModel):
     """POST /chat/generate-from-conversation — The auto-generated artwork."""
-    image: dict                              # {id, image_url, prompt_used, style_used}
+    image: GeneratedImageResponse | None     # None if generation produced no images
     emotion_summary: list[EmotionTag]
+
+    model_config = {"from_attributes": True}

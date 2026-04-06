@@ -49,5 +49,9 @@ class User(Base):
 
     # ── Relationships ────────────────────────────────────────────────────
     # back_populates creates a two-way link: user.sessions and session.user
-    sessions: Mapped[list["Session"]] = relationship(back_populates="user")
-    journal_entries: Mapped[list["JournalEntry"]] = relationship(back_populates="user")
+    sessions: Mapped[list["Session"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    journal_entries: Mapped[list["JournalEntry"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )

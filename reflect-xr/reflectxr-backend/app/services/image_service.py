@@ -13,10 +13,12 @@ DALL-E 3 only supports n=1 per API call (unlike DALL-E 2).
 To get 4 images, we make 4 separate API calls.
 """
 
+import io
 import uuid
 import httpx
 from fastapi import HTTPException
 from openai import AsyncOpenAI
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.session import Session
@@ -26,6 +28,15 @@ from app.ai.safety import check_moderation
 
 # ── OpenAI client ────────────────────────────────────────────────────────
 client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+
+
+def _make_thumbnail(image_bytes: bytes, size: tuple[int, int] = (256, 256)) -> bytes:
+    """Resize image to thumbnail dimensions. Returns PNG bytes."""
+    img = Image.open(io.BytesIO(image_bytes))
+    img.thumbnail(size, Image.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
 
 
 async def generate_and_store_images(
@@ -81,17 +92,21 @@ async def generate_and_store_images(
             img_response = await http.get(temp_url)
             image_bytes = img_response.content
 
-        # ── Step 4: Upload to S3 ─────────────────────────────────────────
+        # ── Step 4: Upload full image and thumbnail to S3 ────────────────
         image_id = uuid.uuid4()
         s3_key = f"generated/{session.id}/{image_id}.png"
         image_url = await upload_image(image_bytes, s3_key)
+
+        thumb_bytes = _make_thumbnail(image_bytes)
+        thumb_key = f"thumbnails/{session.id}/{image_id}.png"
+        thumbnail_url = await upload_image(thumb_bytes, thumb_key)
 
         # ── Step 5: Save to database ─────────────────────────────────────
         gen_image = GeneratedImage(
             id=image_id,
             session_id=session.id,
             image_url=image_url,
-            thumbnail_url=image_url,  # TODO: generate actual thumbnail
+            thumbnail_url=thumbnail_url,
             prompt_used=revised_prompt,
             style_used=style,
         )

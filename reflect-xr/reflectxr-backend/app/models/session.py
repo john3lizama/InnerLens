@@ -37,5 +37,12 @@ class Session(Base):
 
     # ── Relationships ────────────────────────────────────────────────────
     user: Mapped["User"] = relationship(back_populates="sessions")
-    messages: Mapped[list["Message"]] = relationship(back_populates="session")
-    images: Mapped[list["GeneratedImage"]] = relationship(back_populates="session")
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+    images: Mapped[list["GeneratedImage"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+    journal_entries: Mapped[list["JournalEntry"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
