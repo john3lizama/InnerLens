@@ -19,10 +19,30 @@ ALEXA DEVELOPER CONSOLE SETUP:
 
 import uuid
 from fastapi import APIRouter, Request, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import async_session
 from app.config import settings
+from app.models.user import User
 from app.services.chat_service import handle_chat_message
+
+ALEXA_DEMO_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+async def _get_or_create_demo_user(db: AsyncSession) -> uuid.UUID:
+    """Return the Alexa demo user, creating it if it doesn't exist yet."""
+    result = await db.execute(select(User).where(User.id == ALEXA_DEMO_USER_ID))
+    if result.scalar_one_or_none() is None:
+        from passlib.context import CryptContext
+        pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        db.add(User(
+            id=ALEXA_DEMO_USER_ID,
+            email="alexa-demo@innerlens.internal",
+            display_name="Alexa",
+            hashed_password=pwd_ctx.hash("alexa-demo-not-a-real-password"),
+        ))
+        await db.commit()
+    return ALEXA_DEMO_USER_ID
 
 router = APIRouter()
 
@@ -126,15 +146,24 @@ async def alexa_webhook(request: Request):
                     should_end=False,
                 )
 
-            # Resolve demo user ID
-            demo_user_id = uuid.UUID(settings.ALEXA_DEMO_USER_ID)
-
-            async with async_session() as db:
-                result = await handle_chat_message(
-                    db=db,
-                    user_id=demo_user_id,
-                    session_id=session_id,
-                    message=user_text,
+            try:
+                async with async_session() as db:
+                    demo_user_id = await _get_or_create_demo_user(db)
+                    result = await handle_chat_message(
+                        db=db,
+                        user_id=demo_user_id,
+                        session_id=session_id,
+                        message=user_text,
+                    )
+            except Exception as exc:
+                # Surface a friendly Alexa error rather than a bare 500
+                return _speak(
+                    speech=(
+                        "I'm having trouble connecting right now. "
+                        "Please try again in a moment."
+                    ),
+                    reprompt="Would you like to try again?",
+                    should_end=False,
                 )
 
             new_session_id = str(result["session_id"])
