@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # ── Import all routers ──────────────────────────────────────────────────
 # Each router handles one area of the API. They're defined in app/routers/
-from app.routers import auth, concepts, generate, chat, journal
+from app.routers import auth, concepts, generate, chat, journal, alexa
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -56,6 +56,7 @@ app.include_router(concepts.router, prefix="/concepts", tags=["Concepts"])
 app.include_router(generate.router, prefix="/generate", tags=["Generate"])
 app.include_router(chat.router,     prefix="/chat",     tags=["Chat"])
 app.include_router(journal.router,  prefix="/journal",  tags=["Journal"])
+app.include_router(alexa.router,    prefix="/alexa",    tags=["Alexa"])
 
 
 # ══════════════════════════════════════════════════════════════════════════

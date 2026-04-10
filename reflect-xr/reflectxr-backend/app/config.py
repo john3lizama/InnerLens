@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_MINUTES: int = 1440  # 24 hours
 
+    # ── Alexa ─────────────────────────────────────────────
+    AMAZON_SKILL_ID: str = ""
+    ALEXA_DEMO_USER_ID: str = ""  # UUID of the seeded demo user for Alexa sessions
+
     model_config = SettingsConfigDict(env_file=".env")
 
 

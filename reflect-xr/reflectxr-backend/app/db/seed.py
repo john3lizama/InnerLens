@@ -11,9 +11,14 @@ The 11 extended concepts are placeholders for Aahil to fill in.
 """
 
 import asyncio
+import uuid
 from sqlalchemy import select
 from app.db.database import engine, async_session, Base
 from app.models.concept import Concept, Style
+from app.models.user import User
+
+# Fixed UUID for the Alexa demo user — stable across re-seeds
+ALEXA_DEMO_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -227,6 +232,25 @@ async def seed():
             print(f"[seed] Inserted {len(STYLES)} styles")
         else:
             print("[seed] Styles already exist \u2014 skipping")
+
+        # ── Seed Alexa demo user ─────────────────────────────────────────
+        existing_alexa = await db.execute(
+            select(User).where(User.id == ALEXA_DEMO_USER_ID)
+        )
+        if not existing_alexa.scalar_one_or_none():
+            # Bcrypt hash of "alexa-demo-not-a-real-password"
+            from passlib.context import CryptContext
+            pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+            db.add(User(
+                id=ALEXA_DEMO_USER_ID,
+                email="alexa-demo@innerlens.internal",
+                display_name="Alexa",
+                hashed_password=pwd_ctx.hash("alexa-demo-not-a-real-password"),
+            ))
+            await db.commit()
+            print(f"[seed] Created Alexa demo user → {ALEXA_DEMO_USER_ID}")
+        else:
+            print("[seed] Alexa demo user already exists \u2014 skipping")
 
     print("[seed] Done!")
 
