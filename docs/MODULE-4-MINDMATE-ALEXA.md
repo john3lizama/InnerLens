@@ -1,15 +1,48 @@
 # Module 4 — MindMate Chat + Alexa/Echo Integration
 
 **Owners:** Aahil (AI logic) + John (API + Alexa infra)
-**Location:** `reflectxr-backend/app/routers/chat.py`, `app/services/chat_service.py`, and `alexa/` (stretch)
+**Location:** `reflectxr-backend/app/routers/chat.py`, `app/services/chat_service.py`, `app/routers/alexa.py`
 
 ---
 
-## 1. MindMate: How the Pieces Connect
+## Status
 
-MindMate is NOT a separate service. It is a feature that uses the same backend — specifically the `/chat` router calling into `chat_service`, `emotion_service`, `prompt_builder`, and `image_service`. The only new endpoint is `/chat` and `/chat/generate-from-conversation`.
+| Feature | Status |
+|---------|--------|
+| MindMate chat backend (`/chat`) | ✅ Complete |
+| Emotion extraction + auto-generation trigger | ✅ Complete |
+| Crisis detection + 988 fallback | ✅ Complete |
+| Alexa webhook endpoint (`/alexa/webhook`) | ✅ Complete |
+| Alexa Skill created in Developer Console | ✅ Complete |
+| ngrok tunnel for local testing | ✅ Active |
+| Interaction model (FreeFormIntent) | ✅ Built |
+| End-to-end voice → GPT-4o response | ⚠️ Blocked by OpenAI billing limit |
+| Mobile frontend wired to `/chat` | ❌ Not started (`USE_MOCK = true`) |
 
-### Data Flow (Detailed)
+---
+
+## 1. Environment Variables
+
+These are set in `reflectxr-backend/.env`:
+
+```env
+# OpenAI — used for GPT-4o (MindMate chat) and emotion extraction
+OPENAI_API_KEY=sk-proj-...
+
+# Alexa Skill ID — validated on every incoming webhook request
+AMAZON_SKILL_ID=amzn1.ask.skill.23e5b7eb-57aa-41b0-88d5-0ca5a99dcbe7
+
+# Fixed UUID for the Alexa demo user in the DB (no OAuth needed)
+ALEXA_DEMO_USER_ID=00000000-0000-0000-0000-000000000001
+```
+
+---
+
+## 2. MindMate: How the Pieces Connect
+
+MindMate is NOT a separate service. It uses the same backend — specifically the `/chat` router calling into `chat_service`, `emotion_service`, `prompt_builder`, and `image_service`.
+
+### Data Flow
 
 ```
 Mobile app sends:  POST /chat { session_id: null, message: "I've been stressed about school" }
@@ -21,19 +54,16 @@ chat.py (router)
   3. Call safety.check_crisis(message)
      → If crisis: return immediately with is_crisis=true + 988 message
      → If safe: continue
-  4. Call chat_service.get_reply(session_id, message)
-     a. Load last 10 messages from DB
-     b. Build context: [system_prompt, ...history, user_message]
-     c. Call GPT-4o → get reply text
-     d. Save assistant message to messages table
-  5. Call emotion_service.extract_emotions(last 3 turns as text)
-     → Returns [{"emotion": "stress", "intensity": 0.8}, {"emotion": "overwhelm", "intensity": 0.5}]
+  4. Load last 10 messages from DB, build context for GPT-4o
+  5. Call GPT-4o → get empathetic reply
+  6. Call emotion_service.extract_emotions(conversation text)
+     → Returns [{"emotion": "stress", "intensity": 0.8}, ...]
      → Save emotion_tags JSONB on the assistant message
-  6. Determine should_generate_image:
-     → session.message_count >= 6 (3+ user messages)
+  7. Determine should_generate_image:
+     → session has 3+ user messages
      → dominant emotion intensity >= 0.7
      → no image already generated for this session
-  7. Return response to mobile app
+  8. Return response to mobile app
                                     │
                                     ▼
 Mobile app receives: { session_id: "abc", reply: "That sounds heavy...", emotion_tags: [...],
@@ -47,158 +77,133 @@ Mobile app receives: { ..., should_generate_image: true, ... }
 Mobile app sends:  POST /chat/generate-from-conversation { session_id: "abc" }
                                     │
                                     ▼
-chat.py (router)
-  1. Load all messages for this session
-  2. Call emotion_service.extract_emotions(full conversation text)
-  3. Call prompt_builder.build_prompt_from_emotions(emotions)
-     → Returns ("Create waves of stress that rise and fade into calm water.", "Watercolor")
-  4. Call image_service.generate_images(prompt, style, count=1)
-  5. Upload to S3, save GeneratedImage record (source="chat")
-  6. Return image URL + emotion summary to mobile app
+  → Extracts emotions from full conversation
+  → Builds image prompt via prompt_builder
+  → Generates 1 image (DALL-E 3), uploads to S3
+  → Returns image URL + emotion summary
                                     │
                                     ▼
-Mobile app shows ChatImageReveal modal with the generated artwork
+Mobile app shows ChatImageReveal modal with generated artwork
 ```
 
 ---
 
-## 2. Implementation Order
-
-**Aahil builds the AI logic. John builds the HTTP + database wiring. They should not block each other.**
-
-### Week 5 — Parallel Work
-
-**Aahil (no HTTP dependency):**
-1. Write `chat_service.py` → `get_reply(session_id, message)` function
-   - Takes a session_id and message, returns a reply string
-   - Can be tested with a standalone Python script — no FastAPI needed
-2. Wire `safety.py` check into the flow
-3. Test with 10+ sample conversations, verify tone and length
-
-**John (no AI dependency):**
-1. Write `POST /chat` router
-   - Session creation, message storage, response shape
-   - Mock the AI reply as `"I hear you. Tell me more."` until Aahil's module is ready
-2. Write session management (create, load messages, count messages)
-3. Test that sessions persist and messages are ordered correctly
-
-### Week 5.5 — Integration
-- John replaces the mock reply with a call to `chat_service.get_reply()`
-- Aahil provides `emotion_service.extract_emotions()` and John wires it into the response
-- Test the full flow together
-
-### Week 6 — Auto-Generation
-- Aahil writes `prompt_builder.build_prompt_from_emotions()`
-- John writes `POST /chat/generate-from-conversation`
-- Wire them together. Test that emotions → prompt → image works.
-
----
-
-## 3. MindMate Session Lifecycle
-
-```
-[User opens MindMate]
-         │
-         ▼
-  sessionId = null (no session yet)
-         │
-         ├─── User sends first message
-         │    POST /chat { session_id: null, message: "..." }
-         │    → Backend creates Session, returns session_id
-         │    → Frontend stores session_id for subsequent calls
-         │
-         ├─── User sends more messages
-         │    POST /chat { session_id: "abc-123", message: "..." }
-         │    → Backend appends to existing session
-         │
-         ├─── Auto-generation triggered (should_generate_image: true)
-         │    POST /chat/generate-from-conversation { session_id: "abc-123" }
-         │    → Backend generates image, returns URL
-         │    → Frontend shows ChatImageReveal
-         │
-         └─── User closes chat or starts new session
-              → Session persists in DB for journal history
-```
-
----
-
-## 4. Alexa/Echo Integration (Stretch Goal — Week 8)
-
-The Alexa skill is a voice interface to the same MindMate API. It does NOT require a separate backend.
+## 3. Alexa Integration
 
 ### Architecture
 
 ```
-User speaks to Echo → Alexa Service → Lambda Function → POST /chat (your API) → Response → Alexa speaks reply
+User speaks to Echo → Alexa Service → POST /alexa/webhook (FastAPI) → chat_service → GPT-4o → Alexa speaks reply
 ```
 
-### Setup (Aahil + John pair on this)
+No Lambda function is used. The FastAPI backend handles Alexa requests directly.
 
-1. **Create an Alexa Custom Skill** via the Alexa Developer Console
-   - Invocation name: "mind mate" or "inner lens"
-   - Create custom intents: `CheckInIntent`, `GroundingIntent`, `FreeFormIntent`
+### What's Built
 
-2. **Lambda Function** (Python, deployed on AWS)
-   ```python
-   import httpx
+**File:** `reflectxr-backend/app/routers/alexa.py`
 
-   API_URL = "https://your-deployed-api.com"
+**Endpoint:** `POST /alexa/webhook`
 
-   def lambda_handler(event, context):
-       intent = event["request"]["intent"]["name"]
-       session_attrs = event["session"].get("attributes", {})
-       session_id = session_attrs.get("session_id")
+**Handles these request types:**
 
-       if intent == "FreeFormIntent":
-           user_text = event["request"]["intent"]["slots"]["message"]["value"]
-           response = httpx.post(f"{API_URL}/chat", json={
-               "session_id": session_id,
-               "message": user_text,
-           }, headers={"Authorization": f"Bearer {API_TOKEN}"})
+| Request Type | Behaviour |
+|-------------|-----------|
+| `LaunchRequest` | "Welcome to InnerLens Mind Mate. I'm here to listen..." |
+| `IntentRequest → FreeFormIntent` | Proxies speech text to `chat_service`, speaks reply |
+| `IntentRequest → AMAZON.HelpIntent` | Explains how to use the skill |
+| `IntentRequest → AMAZON.StopIntent / CancelIntent` | "Take care of yourself. Goodbye." |
+| `SessionEndedRequest` | Silent — no response body needed |
+| Unknown Skill ID | Returns HTTP 403 |
 
-           data = response.json()
-           return build_alexa_response(
-               speech=data["reply"],
-               session_attrs={"session_id": data["session_id"]},
-               should_end=False,
-           )
-   ```
+**Security:** Every request validates `applicationId` against `AMAZON_SKILL_ID` in `.env`. Mismatches return 403.
 
-3. **Interaction Model** (simplified)
-   ```json
-   {
-     "intents": [
-       {
-         "name": "FreeFormIntent",
-         "slots": [{ "name": "message", "type": "AMAZON.SearchQuery" }],
-         "samples": [
-           "{message}",
-           "I'm feeling {message}",
-           "I want to talk about {message}"
-         ]
-       }
-     ]
-   }
-   ```
+**Auth:** Uses a fixed demo user (`ALEXA_DEMO_USER_ID = 00000000-0000-0000-0000-000000000001`) seeded automatically in the DB. No OAuth or account linking needed.
 
-### What Makes a Good Demo (Even If Basic)
-- "Alexa, open Mind Mate"
-- "I've been feeling anxious about work"
-- Alexa responds with MindMate's empathetic reply
-- After 2-3 turns: "I've created some artwork based on our conversation. Open InnerLens on your phone to see it."
-- That last part is just a spoken message — the actual image was generated on the backend and is visible in the mobile app.
+**Auto-art notification:** When `should_generate_image` is true, Alexa speaks:
+> "I've created some artwork based on our conversation. Open InnerLens on your phone to see it."
 
-### Minimum Viable Alexa Demo: 2-3 hours of work
-- 1 intent (`FreeFormIntent` with `AMAZON.SearchQuery` slot)
-- 1 Lambda function that proxies to your API
-- Hard-coded auth token (it's a demo)
-- No account linking needed for the demo
+**Error handling:** If GPT-4o is unavailable, Alexa speaks a graceful error instead of crashing:
+> "I'm having trouble connecting right now. Please try again in a moment."
+
+### Alexa Developer Console Setup
+
+- **Skill ID:** `amzn1.ask.skill.23e5b7eb-57aa-41b0-88d5-0ca5a99dcbe7`
+- **Endpoint type:** HTTPS
+- **Default Region URL:** `https://<ngrok-url>/alexa/webhook`
+- **Certificate type:** My development endpoint is a sub-domain of a domain that has a wildcard certificate from a certificate authority
+- **Invocation name:** `mind mate` (or `inner lens`)
+
+### Interaction Model
+
+**Intent: `FreeFormIntent`**
+
+Slot:
+| Name | Type |
+|------|------|
+| `message` | `AMAZON.SearchQuery` |
+
+Sample utterances:
+```
+{message}
+I'm feeling {message}
+I want to talk about {message}
+I've been feeling {message}
+```
+
+Built-in intents enabled: `AMAZON.StopIntent`, `AMAZON.CancelIntent`, `AMAZON.HelpIntent`
+
+### Local Testing with ngrok
+
+```bash
+# 1. Start the backend (if not already running)
+cd reflect-xr/reflectxr-backend
+docker-compose up -d
+
+# 2. Start ngrok in a separate terminal
+ngrok http 8000
+
+# 3. Copy the https:// URL from ngrok output, e.g.:
+#    https://trapezoid-goliath-botch.ngrok-free.dev
+
+# 4. Set endpoint in Alexa Developer Console:
+#    https://trapezoid-goliath-botch.ngrok-free.dev/alexa/webhook
+
+# 5. Test the LaunchRequest manually:
+curl -X POST https://trapezoid-goliath-botch.ngrok-free.dev/alexa/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "version": "1.0",
+    "session": {
+      "application": {"applicationId": "amzn1.ask.skill.23e5b7eb-57aa-41b0-88d5-0ca5a99dcbe7"},
+      "attributes": {}
+    },
+    "request": {"type": "LaunchRequest"}
+  }'
+```
 
 ---
 
-## 5. What NOT to Build
+## 4. What's Still Needed
 
-- Do not build a separate Alexa backend. Use the same `/chat` endpoint.
-- Do not build Alexa account linking (OAuth flow). Use a hardcoded token for the demo.
-- Do not try to play images on the Echo Show. Just speak a message that says "check your phone."
-- Do not invest more than 6-8 hours total on Alexa. If the core app isn't rock solid, skip Alexa entirely.
+### To complete voice → GPT-4o end-to-end
+- [ ] Add OpenAI credits to unblock GPT-4o calls (account billing limit currently reached)
+
+### To complete the mobile MindMate feature
+- [ ] Set `USE_MOCK = false` in `src/hooks/useChat.ts`
+- [ ] Remove mock responses and wire `chatService.sendMessage()` to `POST /chat`
+- [ ] Wire `POST /chat/generate-from-conversation` when `should_generate_image` is true
+- [ ] Show `ChatImageReveal` modal with returned image URL
+
+### For production (post-demo)
+- [ ] Replace ngrok with a real deployed URL (AWS/Render/Railway)
+- [ ] Consider Alexa account linking (OAuth) so each voice user maps to their own account
+- [ ] Add HTTPS signature verification for Alexa requests (required for certification)
+
+---
+
+## 5. What Was Intentionally NOT Built
+
+- No separate Alexa backend — the same FastAPI `/chat` endpoint handles everything
+- No AWS Lambda — FastAPI serves the webhook directly
+- No image display on Echo Show — Alexa speaks "check your phone" instead
+- No OAuth/account linking — hardcoded demo user is sufficient for a demo
