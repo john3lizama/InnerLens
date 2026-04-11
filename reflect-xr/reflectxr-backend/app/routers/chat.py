@@ -14,7 +14,9 @@ If the frontend gets should_generate_image=True, it calls
 POST /chat/generate-from-conversation to create art.
 """
 
+import traceback
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.schemas.chat import (
@@ -39,13 +41,16 @@ async def chat(
     The heavy lifting happens in chat_service.py.
     This router just passes the data through.
     """
-    result = await handle_chat_message(
-        db=db,
-        user_id=current_user.id,
-        session_id=request.session_id,
-        message=request.message,
-    )
-    return result
+    try:
+        result = await handle_chat_message(
+            db=db,
+            user_id=current_user.id,
+            session_id=request.session_id,
+            message=request.message,
+        )
+        return result
+    except Exception:
+        return JSONResponse(status_code=500, content={"debug_traceback": traceback.format_exc()})
 
 
 @router.post("/generate-from-conversation", response_model=ChatGenerateResponse)
