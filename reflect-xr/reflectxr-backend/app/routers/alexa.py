@@ -75,6 +75,36 @@ def _speak(
     return response
 
 
+def _extract_speech(body: dict) -> str:
+    """
+    Extract the user's raw spoken text from anywhere Alexa may put it.
+
+    Alexa puts speech in different places depending on intent type:
+    - FreeFormIntent: in the slot value
+    - FallbackIntent: sometimes in slot, sometimes not at all
+    - All intents: the raw transcript is in body["request"]["intent"]["slots"]
+      or in the top-level body["request"] as "rawQuery" on some platforms
+
+    We try every location and return the first non-empty value found.
+    """
+    req = body.get("request", {})
+    intent = req.get("intent", {})
+    slots = intent.get("slots", {})
+
+    # Try every slot value (covers message, query, utterance, etc.)
+    for slot in slots.values():
+        val = slot.get("value", "").strip()
+        if val:
+            return val
+
+    # Some Alexa platforms expose the raw transcript here
+    raw = req.get("rawQuery", "").strip()
+    if raw:
+        return raw
+
+    return ""
+
+
 # ── Shared chat handler ───────────────────────────────────────────────────
 
 async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None) -> dict:
@@ -180,73 +210,32 @@ async def alexa_webhook(request: Request):
                 should_end=False,
             )
 
-        # FreeFormIntent — named slot captured the speech
-        if intent_name == "FreeFormIntent":
-            slots = body["request"]["intent"].get("slots", {})
-            user_text = (
-                slots.get("message", {}).get("value")
-                or slots.get("query", {}).get("value")
-                or ""
-            ).strip()
+        # FreeFormIntent, FallbackIntent, or any other intent —
+        # all go to MindMate if there's captured speech.
+        # This makes the skill resilient regardless of which intent fires.
+        user_text = _extract_speech(body)
 
-            if not user_text:
-                return _speak(
-                    speech="I didn't catch that. Could you say that again?",
-                    reprompt="What's on your mind?",
-                    should_end=False,
-                )
+        if not user_text:
+            return _speak(
+                speech=(
+                    "I didn't quite catch that. "
+                    "Try saying something like: I feel stressed about school."
+                ),
+                reprompt="What's on your mind?",
+                should_end=False,
+            )
 
-            try:
-                return await _handle_user_speech(user_text, session_id)
-            except Exception:
-                return _speak(
-                    speech=(
-                        "I'm having trouble connecting right now. "
-                        "Please try again in a moment."
-                    ),
-                    reprompt="Would you like to try again?",
-                    should_end=False,
-                )
-
-        # FallbackIntent — Alexa couldn't match a slot but the user spoke.
-        # Treat whatever they said as a chat message by reading it from the
-        # raw transcript in the request (Alexa populates this on Echo devices).
-        if intent_name == "AMAZON.FallbackIntent":
-            # Try to get the raw spoken text from the request
-            user_text = (
-                body.get("request", {}).get("intent", {})
-                    .get("slots", {}).get("utterance", {}).get("value", "")
-                or body.get("request", {}).get("intent", {})
-                    .get("slots", {}).get("message", {}).get("value", "")
-                or ""
-            ).strip()
-
-            if not user_text:
-                # No text captured — ask them to rephrase
-                return _speak(
-                    speech="I didn't quite catch that. Could you tell me how you're feeling?",
-                    reprompt="What's on your mind?",
-                    should_end=False,
-                )
-
-            try:
-                return await _handle_user_speech(user_text, session_id)
-            except Exception:
-                return _speak(
-                    speech=(
-                        "I'm having trouble connecting right now. "
-                        "Please try again in a moment."
-                    ),
-                    reprompt="Would you like to try again?",
-                    should_end=False,
-                )
-
-        # Unknown intent — ask them to rephrase
-        return _speak(
-            speech="I didn't quite get that. Try telling me how you're feeling.",
-            reprompt="What's on your mind?",
-            should_end=False,
-        )
+        try:
+            return await _handle_user_speech(user_text, session_id)
+        except Exception:
+            return _speak(
+                speech=(
+                    "I'm having trouble connecting right now. "
+                    "Please try again in a moment."
+                ),
+                reprompt="Would you like to try again?",
+                should_end=False,
+            )
 
     # ── SessionEndedRequest: user exits or times out ──────────────────────
     if request_type == "SessionEndedRequest":
