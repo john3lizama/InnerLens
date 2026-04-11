@@ -91,10 +91,10 @@ async def handle_chat_message(
 
     # ── Step 5: Call GPT-4o for the empathetic response ──────────────────
     completion = await client.chat.completions.create(
-        model="gpt-4o",       # Use gpt-4o-mini during development to save $$$
+        model="gpt-4o-mini",   # Faster response time — critical for Alexa's 8s timeout
         messages=context,
         temperature=0.7,       # Slightly creative but still grounded
-        max_tokens=300,        # 2-4 sentences = ~100-200 tokens
+        max_tokens=150,        # Shorter = faster = stays within Alexa timeout
     )
     reply = completion.choices[0].message.content
 

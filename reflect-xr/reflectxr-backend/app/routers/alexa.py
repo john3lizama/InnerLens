@@ -19,6 +19,7 @@ ALEXA DEVELOPER CONSOLE SETUP:
 """
 
 import uuid
+import httpx
 from fastapi import APIRouter, Request, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -105,9 +106,35 @@ def _extract_speech(body: dict) -> str:
     return ""
 
 
+async def _send_progressive_response(api_endpoint: str, api_token: str, speech: str) -> None:
+    """
+    Send a progressive response to Alexa to keep the session alive
+    while the GPT call is processing. Alexa kills sessions after 8 seconds
+    of silence — this buys us extra time by speaking immediately.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as http:
+            await http.post(
+                f"{api_endpoint}/v1/directives",
+                headers={
+                    "Authorization": f"Bearer {api_token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "header": {"requestId": uuid.uuid4().hex},
+                    "directive": {
+                        "type": "VoicePlayer.Speak",
+                        "speech": f"<speak>{speech}</speak>",
+                    },
+                },
+            )
+    except Exception:
+        pass  # Progressive response is best-effort, never block on it
+
+
 # ── Shared chat handler ───────────────────────────────────────────────────
 
-async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None) -> dict:
+async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None, body: dict) -> dict:
     """
     Send user speech to the chat service, trigger image generation if needed,
     and return the Alexa response dict.
@@ -116,6 +143,13 @@ async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None) -> d
     makes after launch is routed to MindMate — even if Alexa can't match
     it to a named intent slot.
     """
+    # Send a progressive response immediately to keep the Alexa session alive
+    # while GPT processes. Without this, Alexa kills the session after 8s.
+    api_endpoint = body.get("context", {}).get("System", {}).get("apiEndpoint", "")
+    api_token = body.get("context", {}).get("System", {}).get("apiAccessToken", "")
+    if api_endpoint and api_token:
+        await _send_progressive_response(api_endpoint, api_token, "Hmm, let me think about that.")
+
     async with async_session() as db:
         demo_user_id = await _get_or_create_demo_user(db)
         result = await handle_chat_message(
@@ -226,7 +260,7 @@ async def alexa_webhook(request: Request):
             )
 
         try:
-            return await _handle_user_speech(user_text, session_id)
+            return await _handle_user_speech(user_text, session_id, body)
         except Exception:
             return _speak(
                 speech=(
