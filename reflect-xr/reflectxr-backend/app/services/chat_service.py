@@ -38,6 +38,7 @@ async def handle_chat_message(
     user_id: uuid.UUID,
     session_id: uuid.UUID | None,
     message: str,
+    quick: bool = False,
 ) -> dict:
     """
     Process a user's chat message and return MindMate's response.
@@ -105,44 +106,61 @@ async def handle_chat_message(
     ])
     conversation_text += f"\nassistant: {reply}"
 
-    # Extract emotions from the full conversation
-    emotion_tags = await extract_emotions(conversation_text)
+    if quick:
+        # In quick mode (Alexa), skip synchronous emotion extraction.
+        # Save the message immediately with empty tags — emotion extraction
+        # will be run in the background by the caller after responding to Alexa.
+        emotion_tags = []
+        assistant_msg = Message(
+            session_id=session_id,
+            role="assistant",
+            content=reply,
+            emotion_tags=[],
+        )
+        db.add(assistant_msg)
+        await db.commit()
 
-    assistant_msg = Message(
-        session_id=session_id,
-        role="assistant",
-        content=reply,
-        emotion_tags=emotion_tags,
-    )
-    db.add(assistant_msg)
-    await db.commit()
+        # For image trigger in quick mode, use message count only —
+        # emotions are not available yet so we signal after 3 messages
+        # and let the caller decide whether to generate.
+        user_msg_count = sum(1 for m in recent_messages if m.role == "user")
+        existing_img = await db.execute(
+            select(GeneratedImage)
+            .where(GeneratedImage.session_id == session_id)
+            .limit(1)
+        )
+        has_existing_image = existing_img.scalar_one_or_none() is not None
+        should_generate = user_msg_count >= 3 and not has_existing_image
+    else:
+        # Normal mode (mobile) — extract emotions synchronously
+        emotion_tags = await extract_emotions(conversation_text)
+        assistant_msg = Message(
+            session_id=session_id,
+            role="assistant",
+            content=reply,
+            emotion_tags=emotion_tags,
+        )
+        db.add(assistant_msg)
+        await db.commit()
 
-    # ── Step 7: Determine mode and auto-generation trigger ───────────────
-    # Simple mode detection based on content keywords
+        user_msg_count = sum(1 for m in recent_messages if m.role == "user")
+        dominant_intensity = max(
+            (e["intensity"] for e in emotion_tags), default=0
+        )
+        existing_img = await db.execute(
+            select(GeneratedImage)
+            .where(GeneratedImage.session_id == session_id)
+            .limit(1)
+        )
+        has_existing_image = existing_img.scalar_one_or_none() is not None
+        should_generate = (
+            user_msg_count >= 3
+            and dominant_intensity >= 0.7
+            and not has_existing_image
+        )
+
+    # ── Step 7: Determine mode ───────────────────────────────────────────
     mode = detect_mode(reply)
-
-    # Auto-generation triggers when:
-    # 1. Session has 3+ user messages (enough conversation)
-    # 2. A dominant emotion has intensity >= 0.7
-    # 3. This session hasn't already generated an image
-    user_msg_count = sum(1 for m in recent_messages if m.role == "user")
-    dominant_intensity = max(
-        (e["intensity"] for e in emotion_tags), default=0
-    )
-
-    # Check if this session already produced a generated image
-    existing_img = await db.execute(
-        select(GeneratedImage)
-        .where(GeneratedImage.session_id == session_id)
-        .limit(1)
-    )
-    has_existing_image = existing_img.scalar_one_or_none() is not None
-
-    should_generate = (
-        user_msg_count >= 3
-        and dominant_intensity >= 0.7
-        and not has_existing_image
-    )
 
     return {
         "session_id": session_id,
@@ -151,6 +169,7 @@ async def handle_chat_message(
         "mode_detected": mode,
         "should_generate_image": should_generate,
         "is_crisis": False,
+        "conversation_text": conversation_text if quick else None,
     }
 
 

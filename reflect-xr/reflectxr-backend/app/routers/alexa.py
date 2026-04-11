@@ -19,6 +19,7 @@ ALEXA DEVELOPER CONSOLE SETUP:
 """
 
 import uuid
+import asyncio
 import httpx
 from fastapi import APIRouter, Request, HTTPException
 from sqlalchemy import select
@@ -152,32 +153,62 @@ async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None, body
 
     async with async_session() as db:
         demo_user_id = await _get_or_create_demo_user(db)
+        # quick=True skips synchronous emotion extraction — saves ~2s per turn,
+        # keeping every response well within Alexa's 8-second timeout.
         result = await handle_chat_message(
             db=db,
             user_id=demo_user_id,
             session_id=session_id,
             message=user_text,
+            quick=True,
         )
 
-        new_session_id = str(result["session_id"])
-        reply = result["reply"]
-        should_generate = result.get("should_generate_image", False)
+    new_session_id = str(result["session_id"])
+    reply = result["reply"]
+    should_generate = result.get("should_generate_image", False)
+    conversation_text = result.get("conversation_text", "")
 
-        # Actually generate the image when triggered, not just announce it
-        if should_generate:
-            try:
-                await generate_from_conversation(
-                    db=db,
-                    user_id=demo_user_id,
-                    session_id=result["session_id"],
-                )
-                reply += (
-                    " I've created some artwork based on our conversation. "
-                    "Open InnerLens on your phone to see it."
-                )
-            except Exception:
-                # Don't let image generation failure break the conversation
-                pass
+    # Background task: extract emotions and optionally generate image.
+    # Runs after Alexa response is already sent — no timeout risk.
+    async def _background_work():
+        try:
+            async with async_session() as bg_db:
+                from app.services.emotion_service import extract_emotions
+                from app.models.message import Message as MsgModel
+                from sqlalchemy import select as sa_select
+
+                # Update the assistant message with real emotion tags
+                emotions = await extract_emotions(conversation_text or "")
+                if emotions:
+                    msg_result = await bg_db.execute(
+                        sa_select(MsgModel)
+                        .where(MsgModel.session_id == result["session_id"])
+                        .where(MsgModel.role == "assistant")
+                        .order_by(MsgModel.created_at.desc())
+                        .limit(1)
+                    )
+                    last_msg = msg_result.scalar_one_or_none()
+                    if last_msg:
+                        last_msg.emotion_tags = emotions
+                        await bg_db.commit()
+
+                # Generate image if triggered
+                if should_generate:
+                    await generate_from_conversation(
+                        db=bg_db,
+                        user_id=demo_user_id,
+                        session_id=result["session_id"],
+                    )
+        except Exception:
+            pass
+
+    asyncio.create_task(_background_work())
+
+    if should_generate:
+        reply += (
+            " I'm creating some artwork based on our conversation. "
+            "Open InnerLens on your phone in a moment to see it."
+        )
 
     return _speak(
         speech=reply,

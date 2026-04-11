@@ -12,3 +12,6 @@ __pycache__/
 # IDE
 .idea/
 .vscode/
+
+# Session logs — local only, not for repo
+docs/ALEXA-SESSION-LOG.md
