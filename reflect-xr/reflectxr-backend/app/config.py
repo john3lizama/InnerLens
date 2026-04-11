@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     AMAZON_SKILL_ID: str = ""
     ALEXA_DEMO_USER_ID: str = ""  # UUID of the seeded demo user for Alexa sessions
 
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()
