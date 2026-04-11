@@ -30,7 +30,7 @@ from app.services.emotion_service import extract_emotions
 from app.services.prompt_builder import build_prompt_from_emotions
 from app.services.image_service import generate_and_store_images
 
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0)
 
 
 async def handle_chat_message(

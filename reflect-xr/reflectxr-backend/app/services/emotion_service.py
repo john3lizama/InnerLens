@@ -20,7 +20,7 @@ from app.ai.system_prompts import EMOTION_EXTRACTION_PROMPT
 # ── OpenAI client ────────────────────────────────────────────────────────
 # AsyncOpenAI lets us make non-blocking API calls.
 # The API key comes from .env via config.py.
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0)
 
 
 async def extract_emotions(text: str) -> list[dict]:

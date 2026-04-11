@@ -24,7 +24,7 @@ from openai import AsyncOpenAI
 from app.config import settings
 
 # ── OpenAI client (reused across calls) ─────────────────────────────────
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0)
 
 
 # ══════════════════════════════════════════════════════════════════════════
