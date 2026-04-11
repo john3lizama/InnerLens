@@ -4,8 +4,9 @@ alexa.py router — Alexa Custom Skill webhook.
 Alexa calls POST /alexa/webhook for every interaction. This router:
 1. Validates the applicationId matches AMAZON_SKILL_ID
 2. Routes by request type (LaunchRequest, IntentRequest, SessionEndedRequest)
-3. For FreeFormIntent — proxies the spoken text to chat_service
-4. Returns Alexa-formatted JSON responses
+3. For FreeFormIntent and FallbackIntent — proxies the spoken text to chat_service
+4. Triggers image generation directly when the chat service signals it
+5. Returns Alexa-formatted JSON responses
 
 AUTH: Uses a fixed demo user (seeded in seed.py) so Alexa doesn't need
 OAuth or account linking. The skill ID check is the security gate.
@@ -24,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import async_session
 from app.config import settings
 from app.models.user import User
-from app.services.chat_service import handle_chat_message
+from app.services.chat_service import handle_chat_message, generate_from_conversation
 
 ALEXA_DEMO_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
@@ -43,6 +44,7 @@ async def _get_or_create_demo_user(db: AsyncSession) -> uuid.UUID:
         ))
         await db.commit()
     return ALEXA_DEMO_USER_ID
+
 
 router = APIRouter()
 
@@ -71,6 +73,54 @@ def _speak(
             "outputSpeech": {"type": "PlainText", "text": reprompt}
         }
     return response
+
+
+# ── Shared chat handler ───────────────────────────────────────────────────
+
+async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None) -> dict:
+    """
+    Send user speech to the chat service, trigger image generation if needed,
+    and return the Alexa response dict.
+
+    Used by both FreeFormIntent and FallbackIntent so any speech the user
+    makes after launch is routed to MindMate — even if Alexa can't match
+    it to a named intent slot.
+    """
+    async with async_session() as db:
+        demo_user_id = await _get_or_create_demo_user(db)
+        result = await handle_chat_message(
+            db=db,
+            user_id=demo_user_id,
+            session_id=session_id,
+            message=user_text,
+        )
+
+        new_session_id = str(result["session_id"])
+        reply = result["reply"]
+        should_generate = result.get("should_generate_image", False)
+
+        # Actually generate the image when triggered, not just announce it
+        if should_generate:
+            try:
+                await generate_from_conversation(
+                    db=db,
+                    user_id=demo_user_id,
+                    session_id=result["session_id"],
+                )
+                reply += (
+                    " I've created some artwork based on our conversation. "
+                    "Open InnerLens on your phone to see it."
+                )
+            except Exception:
+                # Don't let image generation failure break the conversation
+                pass
+
+    return _speak(
+        speech=reply,
+        session_attrs={"session_id": new_session_id},
+        reprompt="Is there anything else you'd like to share?",
+        should_end=False,
+    )
 
 
 # ── Main webhook ──────────────────────────────────────────────────────────
@@ -130,7 +180,7 @@ async def alexa_webhook(request: Request):
                 should_end=False,
             )
 
-        # FreeFormIntent — the main conversational intent
+        # FreeFormIntent — named slot captured the speech
         if intent_name == "FreeFormIntent":
             slots = body["request"]["intent"].get("slots", {})
             user_text = (
@@ -147,16 +197,8 @@ async def alexa_webhook(request: Request):
                 )
 
             try:
-                async with async_session() as db:
-                    demo_user_id = await _get_or_create_demo_user(db)
-                    result = await handle_chat_message(
-                        db=db,
-                        user_id=demo_user_id,
-                        session_id=session_id,
-                        message=user_text,
-                    )
-            except Exception as exc:
-                # Surface a friendly Alexa error rather than a bare 500
+                return await _handle_user_speech(user_text, session_id)
+            except Exception:
                 return _speak(
                     speech=(
                         "I'm having trouble connecting right now. "
@@ -166,27 +208,42 @@ async def alexa_webhook(request: Request):
                     should_end=False,
                 )
 
-            new_session_id = str(result["session_id"])
-            reply = result["reply"]
-            should_generate = result.get("should_generate_image", False)
+        # FallbackIntent — Alexa couldn't match a slot but the user spoke.
+        # Treat whatever they said as a chat message by reading it from the
+        # raw transcript in the request (Alexa populates this on Echo devices).
+        if intent_name == "AMAZON.FallbackIntent":
+            # Try to get the raw spoken text from the request
+            user_text = (
+                body.get("request", {}).get("intent", {})
+                    .get("slots", {}).get("utterance", {}).get("value", "")
+                or body.get("request", {}).get("intent", {})
+                    .get("slots", {}).get("message", {}).get("value", "")
+                or ""
+            ).strip()
 
-            # If art was triggered, append a spoken cue
-            if should_generate:
-                reply += (
-                    " I've created some artwork based on our conversation. "
-                    "Open InnerLens on your phone to see it."
+            if not user_text:
+                # No text captured — ask them to rephrase
+                return _speak(
+                    speech="I didn't quite catch that. Could you tell me how you're feeling?",
+                    reprompt="What's on your mind?",
+                    should_end=False,
                 )
 
-            return _speak(
-                speech=reply,
-                session_attrs={"session_id": new_session_id},
-                reprompt="Is there anything else you'd like to share?",
-                should_end=False,
-            )
+            try:
+                return await _handle_user_speech(user_text, session_id)
+            except Exception:
+                return _speak(
+                    speech=(
+                        "I'm having trouble connecting right now. "
+                        "Please try again in a moment."
+                    ),
+                    reprompt="Would you like to try again?",
+                    should_end=False,
+                )
 
-        # Fallback for unrecognised intents
+        # Unknown intent — ask them to rephrase
         return _speak(
-            speech="I'm not sure how to help with that. Try telling me how you're feeling.",
+            speech="I didn't quite get that. Try telling me how you're feeling.",
             reprompt="What's on your mind?",
             should_end=False,
         )
