@@ -249,10 +249,11 @@ async def alexa_webhook(request: Request):
         if not user_text:
             return _speak(
                 speech=(
-                    "I didn't quite catch that. "
-                    "Try saying something like: I feel stressed about school."
+                    "I'm here and I'm listening. "
+                    "You can say something like: I feel sad, "
+                    "or just describe what's on your mind."
                 ),
-                reprompt="What's on your mind?",
+                reprompt="Take your time. What's been going on for you?",
                 should_end=False,
             )
 
