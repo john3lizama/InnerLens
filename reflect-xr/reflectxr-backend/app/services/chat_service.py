@@ -130,7 +130,7 @@ async def handle_chat_message(
             .limit(1)
         )
         has_existing_image = existing_img.scalar_one_or_none() is not None
-        should_generate = user_msg_count >= 3 and not has_existing_image
+        should_generate = user_msg_count >= 8 and not has_existing_image
     else:
         # Normal mode (mobile) — extract emotions synchronously
         emotion_tags = await extract_emotions(conversation_text)
