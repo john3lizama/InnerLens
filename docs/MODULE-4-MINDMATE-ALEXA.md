@@ -15,8 +15,14 @@
 | Alexa webhook endpoint (`/alexa/webhook`) | ✅ Complete |
 | Alexa Skill created in Developer Console | ✅ Complete |
 | ngrok tunnel for local testing | ✅ Active |
-| Interaction model (FreeFormIntent) | ✅ Built |
-| End-to-end voice → GPT-4o response | ⚠️ Blocked by OpenAI billing limit |
+| Interaction model (FreeFormIntent + EmotionIntent) | ✅ Built — 200+ utterances |
+| End-to-end voice → GPT-4o-mini response | ✅ Working (switched from gpt-4o) |
+| Session continuity within a conversation | ✅ Working (session_id via sessionAttributes) |
+| Session memory across invocations | ✅ Working (previous_session_id loaded on LaunchRequest) |
+| Image generation from voice conversation | ✅ Working (background task, fires after 5 messages) |
+| Per-topic image isolation (no intertwining) | ✅ Working (new session per invocation) |
+| MindMate correction handling | ✅ Improved via system prompt |
+| MindMate advice mode | ✅ Implemented via system prompt |
 | Mobile frontend wired to `/chat` | ❌ Not started (`USE_MOCK = true`) |
 
 ---
@@ -108,8 +114,10 @@ No Lambda function is used. The FastAPI backend handles Alexa requests directly.
 
 | Request Type | Behaviour |
 |-------------|-----------|
-| `LaunchRequest` | "Welcome to InnerLens Mind Mate. I'm here to listen..." |
+| `LaunchRequest` | Checks DB for most recent session. Says "Welcome back" if one exists and stores `previous_session_id` in sessionAttributes for memory recall. |
 | `IntentRequest → FreeFormIntent` | Proxies speech text to `chat_service`, speaks reply |
+| `IntentRequest → EmotionIntent` | Captures single-word/short emotional responses (sad, overwhelmed, etc.) via custom slot type |
+| `IntentRequest → AMAZON.FallbackIntent` | Routes to MindMate if any speech was captured; otherwise prompts gently |
 | `IntentRequest → AMAZON.HelpIntent` | Explains how to use the skill |
 | `IntentRequest → AMAZON.StopIntent / CancelIntent` | "Take care of yourself. Goodbye." |
 | `SessionEndedRequest` | Silent — no response body needed |
@@ -119,10 +127,28 @@ No Lambda function is used. The FastAPI backend handles Alexa requests directly.
 
 **Auth:** Uses a fixed demo user (`ALEXA_DEMO_USER_ID = 00000000-0000-0000-0000-000000000001`) seeded automatically in the DB. No OAuth or account linking needed.
 
-**Auto-art notification:** When `should_generate_image` is true, Alexa speaks:
-> "I've created some artwork based on our conversation. Open InnerLens on your phone to see it."
+**Session memory across invocations:**
+- On `LaunchRequest`, the backend queries the DB for the demo user's most recent session
+- If messages exist, `previous_session_id` is stored in Alexa `sessionAttributes`
+- That ID is carried forward on every turn via `_handle_user_speech`
+- When the user asks "do you remember our last conversation", the backend loads the previous session transcript and injects it into the GPT context as a system message
+- Each new invocation creates a fresh session (no `session_id` in launch response) — images never mix between conversations
 
-**Error handling:** If GPT-4o is unavailable, Alexa speaks a graceful error instead of crashing:
+**Image generation:**
+- Triggers after 5 user messages in a session, once per session
+- Runs in a background `asyncio.create_task` — never blocks the Alexa response
+- Each new "open Mind Mate" invocation = new session = independent image
+- When triggered, Alexa speaks: "I'm creating some artwork based on our conversation. Open InnerLens on your phone in a moment to see it."
+
+**quick=True mode (Alexa-specific):**
+- Skips synchronous emotion extraction (saves ~2s per turn)
+- Emotion extraction and image generation run in a background task after the response is sent
+- Image trigger uses message count only (no emotion intensity check) since emotions aren't available yet
+
+**Auto-art notification:** When `should_generate_image` is true, Alexa appends:
+> "I'm creating some artwork based on our conversation. Open InnerLens on your phone in a moment to see it."
+
+**Error handling:** If GPT is unavailable, Alexa speaks a graceful error instead of crashing:
 > "I'm having trouble connecting right now. Please try again in a moment."
 
 ### Alexa Developer Console Setup
@@ -135,22 +161,35 @@ No Lambda function is used. The FastAPI backend handles Alexa requests directly.
 
 ### Interaction Model
 
-**Intent: `FreeFormIntent`**
+Two custom intents + built-ins:
 
-Slot:
-| Name | Type |
+**Intent: `FreeFormIntent`** — open-ended speech via `AMAZON.SearchQuery`
+
+| Slot | Type |
 |------|------|
 | `message` | `AMAZON.SearchQuery` |
 
-Sample utterances:
-```
-{message}
-I'm feeling {message}
-I want to talk about {message}
-I've been feeling {message}
-```
+200+ carrier phrase utterances covering:
+- Emotional statements: `I feel {message}`, `I've been {message}`, `I'm {message}`
+- Subject-first: `college is {message}`, `work and school {message}`, `money is {message}`
+- Gerund answers: `having to {message}`, `trying to {message}`, `finding {message}`
+- Elaborations: `because {message}`, `on top of that {message}`, `especially {message}`
+- Questions: `what is {message}`, `how do I {message}`, `do you have {message}`
+- Corrections: `no like {message}`, `what I mean is {message}`, `actually {message}`
+- Memory: `do you remember {message}`, `do you {message}`
 
-Built-in intents enabled: `AMAZON.StopIntent`, `AMAZON.CancelIntent`, `AMAZON.HelpIntent`
+**Intent: `EmotionIntent`** — single-word/short emotional responses via custom slot
+
+| Slot | Type |
+|------|------|
+| `emotion` | `EMOTION_TYPE` (custom enum) |
+
+Captures bare words without carrier phrases — e.g. "sad", "overwhelmed", "not okay".
+`EMOTION_TYPE` has 80+ values including emotions, advice-seeking phrases ("any suggestions", "help me", "I don't know"), and intensity modifiers ("really stressed", "super overwhelmed").
+
+Both intents route through the same `_extract_speech()` → `_handle_user_speech()` code path.
+
+Built-in intents enabled: `AMAZON.StopIntent`, `AMAZON.CancelIntent`, `AMAZON.HelpIntent`, `AMAZON.FallbackIntent`
 
 ### Local Testing with ngrok
 
@@ -185,19 +224,18 @@ curl -X POST https://trapezoid-goliath-botch.ngrok-free.dev/alexa/webhook \
 
 ## 4. What's Still Needed
 
-### To complete voice → GPT-4o end-to-end
-- [ ] Add OpenAI credits to unblock GPT-4o calls (account billing limit currently reached)
-
 ### To complete the mobile MindMate feature
 - [ ] Set `USE_MOCK = false` in `src/hooks/useChat.ts`
 - [ ] Remove mock responses and wire `chatService.sendMessage()` to `POST /chat`
 - [ ] Wire `POST /chat/generate-from-conversation` when `should_generate_image` is true
 - [ ] Show `ChatImageReveal` modal with returned image URL
+- [ ] Display images generated from Alexa sessions (saved under `alexa-demo@innerlens.internal`)
 
 ### For production (post-demo)
 - [ ] Replace ngrok with a real deployed URL (AWS/Render/Railway)
 - [ ] Consider Alexa account linking (OAuth) so each voice user maps to their own account
 - [ ] Add HTTPS signature verification for Alexa requests (required for certification)
+- [ ] Add "start fresh" / "new conversation" intent so users can explicitly reset session memory
 
 ---
 
