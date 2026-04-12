@@ -26,7 +26,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import async_session
 from app.config import settings
 from app.models.user import User
+from app.models.session import Session as ChatSession
+from app.models.message import Message as ChatMessage
 from app.services.chat_service import handle_chat_message, generate_from_conversation
+
+# Keywords that indicate the user is asking MindMate to recall a past conversation
+_MEMORY_KEYWORDS = [
+    "remember", "previous conversation", "last conversation",
+    "last time", "we talked", "we spoke", "from before",
+    "what we discussed", "earlier", "before",
+]
 
 ALEXA_DEMO_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
@@ -117,6 +126,37 @@ async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None, body
     makes after launch is routed to MindMate — even if Alexa cannot match
     it to a named intent slot.
     """
+    session_attrs = body.get("session", {}).get("attributes", {})
+    previous_session_id_str = session_attrs.get("previous_session_id")
+
+    # If the user is asking about a previous conversation, load that session's
+    # messages and inject them as extra context so GPT can actually recall them.
+    extra_context: str | None = None
+    is_memory_question = any(kw in user_text.lower() for kw in _MEMORY_KEYWORDS)
+    if is_memory_question and previous_session_id_str:
+        try:
+            prev_sid = uuid.UUID(previous_session_id_str)
+            async with async_session() as ctx_db:
+                prev_result = await ctx_db.execute(
+                    select(ChatMessage)
+                    .where(ChatMessage.session_id == prev_sid)
+                    .order_by(ChatMessage.created_at.asc())
+                    .limit(20)
+                )
+                prev_msgs = prev_result.scalars().all()
+                if prev_msgs:
+                    summary = "\n".join(
+                        f"{m.role}: {m.content}" for m in prev_msgs
+                    )
+                    extra_context = (
+                        "The user is asking about a previous conversation. "
+                        "Here is the transcript from that session:\n"
+                        f"{summary}\n"
+                        "Use this to answer their memory question naturally."
+                    )
+        except Exception:
+            pass  # If loading fails, GPT will handle it gracefully via system prompt
+
     async with async_session() as db:
         demo_user_id = await _get_or_create_demo_user(db)
         # quick=True skips synchronous emotion extraction — saves ~2s per turn,
@@ -127,6 +167,7 @@ async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None, body
             session_id=session_id,
             message=user_text,
             quick=True,
+            extra_context=extra_context,
         )
 
     new_session_id = str(result["session_id"])
@@ -176,9 +217,15 @@ async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None, body
             "Open InnerLens on your phone in a moment to see it."
         )
 
+    # Carry previous_session_id forward so memory questions work on any turn,
+    # not just the first one after launch.
+    attrs: dict = {"session_id": new_session_id}
+    if previous_session_id_str:
+        attrs["previous_session_id"] = previous_session_id_str
+
     return _speak(
         speech=reply,
-        session_attrs={"session_id": new_session_id},
+        session_attrs=attrs,
         reprompt="Is there anything else you'd like to share?",
         should_end=False,
     )
@@ -206,11 +253,45 @@ async def alexa_webhook(request: Request):
 
     # ── LaunchRequest: user says "Alexa, open Mind Mate" ─────────────────
     if request_type == "LaunchRequest":
+        # Load the most recent session for the demo user so we can offer
+        # memory continuity. Each new invocation still creates a fresh session
+        # (for independent image generation), but we store the previous session
+        # ID so the user can ask "do you remember our last conversation".
+        launch_attrs: dict = {}
+        greeting = (
+            "Welcome to InnerLens Mind Mate. "
+            "I'm here to listen. How are you feeling today?"
+        )
+        try:
+            async with async_session() as db:
+                demo_user_id = await _get_or_create_demo_user(db)
+                last_result = await db.execute(
+                    select(ChatSession)
+                    .where(ChatSession.user_id == demo_user_id)
+                    .order_by(ChatSession.created_at.desc())
+                    .limit(1)
+                )
+                last_session = last_result.scalar_one_or_none()
+                if last_session:
+                    # Only use as memory if it has actual messages
+                    msg_check = await db.execute(
+                        select(ChatMessage)
+                        .where(ChatMessage.session_id == last_session.id)
+                        .limit(1)
+                    )
+                    if msg_check.scalar_one_or_none() is not None:
+                        launch_attrs["previous_session_id"] = str(last_session.id)
+                        greeting = (
+                            "Welcome back to InnerLens Mind Mate. "
+                            "I'm here whenever you need me. "
+                            "How are you feeling today?"
+                        )
+        except Exception:
+            pass  # If DB lookup fails, fall back to standard greeting
+
         return _speak(
-            speech=(
-                "Welcome to InnerLens Mind Mate. "
-                "I'm here to listen. How are you feeling today?"
-            ),
+            speech=greeting,
+            session_attrs=launch_attrs,
             reprompt="What's on your mind? You can share anything.",
             should_end=False,
         )

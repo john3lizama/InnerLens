@@ -39,6 +39,7 @@ async def handle_chat_message(
     session_id: uuid.UUID | None,
     message: str,
     quick: bool = False,
+    extra_context: str | None = None,
 ) -> dict:
     """
     Process a user's chat message and return MindMate's response.
@@ -87,6 +88,10 @@ async def handle_chat_message(
 
     # Build the context array for OpenAI
     context = [{"role": "system", "content": MINDMATE_SYSTEM_PROMPT}]
+    # Inject extra context (e.g. previous session transcript for memory recall)
+    # as a system message before the conversation history.
+    if extra_context:
+        context.append({"role": "system", "content": extra_context})
     for msg in recent_messages:
         context.append({"role": msg.role, "content": msg.content})
 
@@ -130,7 +135,7 @@ async def handle_chat_message(
             .limit(1)
         )
         has_existing_image = existing_img.scalar_one_or_none() is not None
-        should_generate = user_msg_count >= 8 and not has_existing_image
+        should_generate = user_msg_count >= 5 and not has_existing_image
     else:
         # Normal mode (mobile) — extract emotions synchronously
         emotion_tags = await extract_emotions(conversation_text)
