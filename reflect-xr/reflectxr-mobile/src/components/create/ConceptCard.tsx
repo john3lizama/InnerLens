@@ -5,6 +5,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
 } from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { typography, spacing, borderRadius, shadow } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
@@ -63,7 +64,7 @@ export default function ConceptCard({
         shadowRadius: 8,
       }]}>
         <View style={[styles.iconHalo, { backgroundColor: resolvedAccentColor + '15' }]}>
-          <Text style={styles.icon}>{icon}</Text>
+          <Ionicons name={icon as any} size={24} color={resolvedAccentColor} />
         </View>
         <View style={styles.content}>
           <Text style={styles.title}>{title}</Text>
@@ -89,15 +90,6 @@ const makeStyles = (colors: any) => StyleSheet.create({
     borderLeftWidth: 4,
     ...shadow.md,
   },
-  iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
   iconHalo: {
     width: 50,
     height: 50,
@@ -105,9 +97,6 @@ const makeStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
-  },
-  icon: {
-    fontSize: 24,
   },
   content: {
     flex: 1,

@@ -1,9 +1,17 @@
 import React from 'react';
 import { StyleSheet, Text, View, ScrollView, Pressable } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  FadeIn,
+} from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { typography, spacing, borderRadius, shadow } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface StyleOption {
   id: string;
@@ -16,6 +24,58 @@ interface StylePickerProps {
   categories: ReadonlyArray<{ key: string; label: string }>;
   selectedId: string | null;
   onSelect: (id: string, name: string) => void;
+}
+
+function StyleChip({
+  style,
+  isSelected,
+  onSelect,
+}: {
+  style: StyleOption;
+  isSelected: boolean;
+  onSelect: (id: string, name: string) => void;
+}) {
+  const { colors } = useTheme();
+  const chipStyles = makeStyles(colors);
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePress = () => {
+    Haptics.selectionAsync();
+    scale.value = withSpring(1.05, { damping: 12, stiffness: 200 });
+    setTimeout(() => {
+      scale.value = withSpring(1, { damping: 12, stiffness: 200 });
+    }, 150);
+    onSelect(style.id, style.name);
+  };
+
+  if (isSelected) {
+    return (
+      <AnimatedPressable onPress={handlePress} style={animatedStyle}>
+        <LinearGradient
+          colors={[...colors.gradient.primary]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[chipStyles.chip, shadow.glowSubtle]}
+        >
+          <Text style={[chipStyles.chipText, chipStyles.chipTextSelected]}>
+            {style.name}
+          </Text>
+        </LinearGradient>
+      </AnimatedPressable>
+    );
+  }
+
+  return (
+    <AnimatedPressable onPress={handlePress} style={animatedStyle}>
+      <View style={[chipStyles.chip, chipStyles.chipUnselected]}>
+        <Text style={chipStyles.chipText}>{style.name}</Text>
+      </View>
+    </AnimatedPressable>
+  );
 }
 
 export default function StylePicker({
@@ -40,44 +100,14 @@ export default function StylePicker({
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={pickerStyles.chipRow}
             >
-              {catStyles.map((style) => {
-                const isSelected = selectedId === style.id;
-                if (isSelected) {
-                  return (
-                    <Pressable
-                      key={style.id}
-                      onPress={() => {
-                        Haptics.selectionAsync();
-                        onSelect(style.id, style.name);
-                      }}
-                    >
-                      <LinearGradient
-                        colors={[...colors.gradient.primary]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={[pickerStyles.chip, shadow.glowSubtle]}
-                      >
-                        <Text style={[pickerStyles.chipText, pickerStyles.chipTextSelected]}>
-                          {style.name}
-                        </Text>
-                      </LinearGradient>
-                    </Pressable>
-                  );
-                }
-                return (
-                  <Pressable
-                    key={style.id}
-                    onPress={() => {
-                      Haptics.selectionAsync();
-                      onSelect(style.id, style.name);
-                    }}
-                  >
-                    <View style={[pickerStyles.chip, pickerStyles.chipUnselected]}>
-                      <Text style={pickerStyles.chipText}>{style.name}</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
+              {catStyles.map((style) => (
+                <StyleChip
+                  key={style.id}
+                  style={style}
+                  isSelected={selectedId === style.id}
+                  onSelect={onSelect}
+                />
+              ))}
             </ScrollView>
           </View>
         );

@@ -46,10 +46,10 @@ function GridItem({
     Haptics.selectionAsync();
     scale.value = withSpring(0.95, { damping: 12, stiffness: 200 });
     setTimeout(() => {
-      scale.value = withSpring(1, { damping: 12, stiffness: 200 });
+      scale.value = withSpring(isSelected ? 1 : 1.02, { damping: 12, stiffness: 200 });
     }, 100);
     onSelect(id);
-  }, [id, onSelect, scale]);
+  }, [id, onSelect, scale, isSelected]);
 
   const handleReport = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
