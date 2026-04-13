@@ -5,16 +5,26 @@ The OpenAI and S3 clients are mocked so no real API calls or uploads happen.
 The test verifies that session + image records are written to the database.
 """
 
+import io
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
+from PIL import Image as PILImage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.concept import Concept, Style
 from app.models.generated_image import GeneratedImage
 from app.models.session import Session
+
+
+def _make_valid_png() -> bytes:
+    """Create a valid 4x4 PNG for mocking image downloads."""
+    img = PILImage.new("RGB", (4, 4), color=(128, 128, 200))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 # ── Shared helpers ────────────────────────────────────────────────────────
 
@@ -77,7 +87,7 @@ async def test_generate_creates_session_and_images(client: AsyncClient, db: Asyn
             return_value=_fake_dalle_response(),
         ),
         patch(
-            "app.services.image_service.client.moderations.create",
+            "app.ai.safety.client.moderations.create",
             new_callable=AsyncMock,
             return_value=MagicMock(results=[MagicMock(flagged=False)]),
         ),
@@ -91,7 +101,7 @@ async def test_generate_creates_session_and_images(client: AsyncClient, db: Asyn
     ):
         # Make the HTTP download return fake PNG bytes
         fake_response = MagicMock()
-        fake_response.content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        fake_response.content = _make_valid_png()
         mock_http.return_value.__aenter__ = AsyncMock(return_value=MagicMock(get=AsyncMock(return_value=fake_response)))
         mock_http.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -128,7 +138,7 @@ async def test_generate_rejects_flagged_content(client: AsyncClient, db: AsyncSe
     headers = await _auth_headers(client)
 
     with patch(
-        "app.services.image_service.client.moderations.create",
+        "app.ai.safety.client.moderations.create",
         new_callable=AsyncMock,
         return_value=MagicMock(results=[MagicMock(flagged=True)]),
     ):
@@ -154,7 +164,7 @@ async def test_select_image_marks_correct_image(client: AsyncClient, db: AsyncSe
             return_value=_fake_dalle_response(),
         ),
         patch(
-            "app.services.image_service.client.moderations.create",
+            "app.ai.safety.client.moderations.create",
             new_callable=AsyncMock,
             return_value=MagicMock(results=[MagicMock(flagged=False)]),
         ),
@@ -162,7 +172,7 @@ async def test_select_image_marks_correct_image(client: AsyncClient, db: AsyncSe
         patch("app.services.image_service.httpx.AsyncClient") as mock_http,
     ):
         fake_response = MagicMock()
-        fake_response.content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        fake_response.content = _make_valid_png()
         mock_http.return_value.__aenter__ = AsyncMock(return_value=MagicMock(get=AsyncMock(return_value=fake_response)))
         mock_http.return_value.__aexit__ = AsyncMock(return_value=False)
 
