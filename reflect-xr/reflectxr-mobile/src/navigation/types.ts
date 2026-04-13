@@ -24,7 +24,7 @@ export type CreateStackParamList = {
   PromptDesign: { concept: Concept };
   PromptEdit: { prompt: string; style: string; concept: Concept };
   Response: { prompt: string; style: string; concept: Concept };
-  Reflect: { image: GeneratedImage; concept: Concept };
+  Reflect: { image: GeneratedImage; concept: Concept; sessionId: string };
 };
 
 export type JournalStackParamList = {

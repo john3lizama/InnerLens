@@ -53,11 +53,23 @@ export const mockConcepts: Concept[] = [
   },
 ];
 
-// Emoji/icon mapping for concept cards
+// Ionicons name mapping for concept cards
 export const conceptIcons: Record<string, string> = {
-  'emotional-waves': '🌊',
-  'safe-space': '🏡',
-  'bright-horizon': '🌅',
-  'inner-garden': '🌿',
-  'harmony': '☯️',
+  'emotional-waves': 'water-outline',
+  'a-safe-space': 'shield-checkmark-outline',
+  'bright-horizon': 'sunny-outline',
+  'inner-garden': 'leaf-outline',
+  'harmony': 'infinite-outline',
+  'the-weight-i-carry': 'barbell-outline',
+  'resilience': 'fitness-outline',
+  'journey': 'map-outline',
+  'masks-we-wear': 'happy-outline',
+  'crossroads': 'git-branch-outline',
+  'future-self': 'telescope-outline',
+  'bridges': 'git-merge-outline',
+  'friendship': 'people-outline',
+  'growing-roots': 'flower-outline',
+  'letting-go': 'balloon-outline',
+  'garden-of-peace': 'rose-outline',
+  'rising-from-ashes': 'flame-outline',
 };

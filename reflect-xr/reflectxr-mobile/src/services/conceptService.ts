@@ -14,6 +14,7 @@ export interface Concept {
 export interface StyleOption {
   id: string;
   name: string;
+  category: string;
 }
 
 export const getConcepts = async (): Promise<{ concepts: Concept[] }> => {
@@ -21,7 +22,7 @@ export const getConcepts = async (): Promise<{ concepts: Concept[] }> => {
   return res.data;
 };
 
-export const getStyles = async () => {
-  const res = await api.get('/styles');
+export const getStyles = async (): Promise<{ styles: StyleOption[] }> => {
+  const res = await api.get('/concepts/styles');
   return res.data;
 };

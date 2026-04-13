@@ -16,7 +16,7 @@ import Card from '../../components/ui/Card';
 import { typography, spacing, borderRadius } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../hooks/useAuth';
-import { mockJournals } from '../../data/mockJournals';
+import * as journalService from '../../services/journalService';
 
 function ProfileRow({
   icon,
@@ -51,6 +51,13 @@ export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const { colors } = useTheme();
   const styles = makeStyles(colors);
+  const [journalCount, setJournalCount] = React.useState(0);
+
+  React.useEffect(() => {
+    journalService.getJournals(1, 0).then((res) => {
+      setJournalCount(res.total);
+    }).catch(() => {});
+  }, []);
 
   const avatarScale = useSharedValue(1);
   useEffect(() => {
@@ -97,7 +104,7 @@ export default function ProfileScreen() {
             </View>
             <Text style={styles.name}>{user?.display_name || 'User'}</Text>
             <Text style={styles.email}>{user?.email || ''}</Text>
-            <Text style={styles.stats}>{mockJournals.length} Reflections · 7 Days Active</Text>
+            <Text style={styles.stats}>{journalCount} Reflections</Text>
           </View>
         </Animated.View>
 

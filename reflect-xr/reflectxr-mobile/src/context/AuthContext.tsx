@@ -1,9 +1,8 @@
 import React, { createContext, useState, useCallback, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User } from '../types/user';
-import { mockUser } from '../data/mockUser';
+import * as authService from '../services/authService';
 
-const USE_MOCK = true;
 const TOKEN_KEY = 'auth_token';
 
 interface AuthState {
@@ -45,48 +44,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const token = await AsyncStorage.getItem(TOKEN_KEY);
       if (token) {
-        if (USE_MOCK) {
-          setState({ user: mockUser, token, isAuthenticated: true, isLoading: false });
-        } else {
-          // TODO: call authService.getMe() with stored token
-          setState({ user: null, token: null, isAuthenticated: false, isLoading: false });
-        }
+        const user = await authService.getMe();
+        setState({ user, token, isAuthenticated: true, isLoading: false });
       } else {
         setState((s) => ({ ...s, isLoading: false }));
       }
     } catch {
-      setState((s) => ({ ...s, isLoading: false }));
+      // Token expired or invalid — clear it
+      await AsyncStorage.removeItem(TOKEN_KEY);
+      setState({ user: null, token: null, isAuthenticated: false, isLoading: false });
     }
   };
 
-  const login = useCallback(async (email: string, _password: string) => {
-    if (USE_MOCK) {
-      const token = 'mock-jwt-token';
-      await AsyncStorage.setItem(TOKEN_KEY, token);
-      setState({
-        user: { ...mockUser, email },
-        token,
-        isAuthenticated: true,
-        isLoading: false,
-      });
-      return;
-    }
-    // TODO: call authService.login(email, password)
+  const login = useCallback(async (email: string, password: string) => {
+    const { access_token } = await authService.login(email, password);
+    await AsyncStorage.setItem(TOKEN_KEY, access_token);
+    const user = await authService.getMe();
+    setState({ user, token: access_token, isAuthenticated: true, isLoading: false });
   }, []);
 
-  const register = useCallback(async (email: string, _password: string, displayName: string) => {
-    if (USE_MOCK) {
-      const token = 'mock-jwt-token';
-      await AsyncStorage.setItem(TOKEN_KEY, token);
-      setState({
-        user: { ...mockUser, email, display_name: displayName },
-        token,
-        isAuthenticated: true,
-        isLoading: false,
-      });
-      return;
-    }
-    // TODO: call authService.register(email, password, displayName)
+  const register = useCallback(async (email: string, password: string, displayName: string) => {
+    const { access_token } = await authService.register(email, password, displayName);
+    await AsyncStorage.setItem(TOKEN_KEY, access_token);
+    const user = await authService.getMe();
+    setState({ user, token: access_token, isAuthenticated: true, isLoading: false });
   }, []);
 
   const logout = useCallback(async () => {

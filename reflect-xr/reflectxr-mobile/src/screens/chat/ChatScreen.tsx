@@ -24,10 +24,12 @@ import { Message } from '../../types/chat';
 
 type Nav = NativeStackNavigationProp<ChatStackParamList, 'Chat'>;
 
+const IMAGE_PREFIX = '__IMAGE__';
+
 export default function ChatScreen() {
   const navigation = useNavigation<Nav>();
   const { colors } = useTheme();
-  const { messages, isTyping, generatedImageUrl, sendMessage } = useChat();
+  const { messages, isTyping, sendMessage } = useChat();
   const flatListRef = useRef<FlatList>(null);
   const styles = makeStyles(colors);
 
@@ -42,16 +44,43 @@ export default function ChatScreen() {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: Message }) => (
-      <Animated.View entering={FadeInUp.springify().damping(18)}>
-        <ChatBubble
-          content={item.content}
-          role={item.role}
-          emotionTags={item.emotion_tags}
-        />
-      </Animated.View>
-    ),
-    []
+    ({ item }: { item: Message }) => {
+      // Check if this is a special image message
+      if (item.content.startsWith(IMAGE_PREFIX)) {
+        const imageUrl = item.content.slice(IMAGE_PREFIX.length);
+        return (
+          <Animated.View entering={FadeInUp.springify().damping(18)} style={styles.imageReveal}>
+            <Text style={styles.imageLabel}>Art created from our conversation</Text>
+            <Pressable
+              onPress={() =>
+                navigation.navigate('ChatImageReveal', { imageUrl })
+              }
+            >
+              <Image
+                source={{ uri: imageUrl }}
+                style={styles.generatedImage}
+                contentFit="cover"
+                transition={500}
+              />
+              <View style={styles.imageTapHint}>
+                <Text style={styles.imageTapText}>Tap to expand</Text>
+              </View>
+            </Pressable>
+          </Animated.View>
+        );
+      }
+
+      return (
+        <Animated.View entering={FadeInUp.springify().damping(18)}>
+          <ChatBubble
+            content={item.content}
+            role={item.role}
+            emotionTags={item.emotion_tags}
+          />
+        </Animated.View>
+      );
+    },
+    [navigation, styles]
   );
 
   return (
@@ -83,33 +112,7 @@ export default function ChatScreen() {
           onContentSizeChange={() =>
             flatListRef.current?.scrollToEnd({ animated: true })
           }
-          ListFooterComponent={
-            <>
-              {isTyping && <TypingIndicator />}
-              {generatedImageUrl && (
-                <Animated.View entering={FadeInUp.springify()} style={styles.imageReveal}>
-                  <Text style={styles.imageLabel}>Art created from our conversation</Text>
-                  <Pressable
-                    onPress={() =>
-                      navigation.navigate('ChatImageReveal', {
-                        imageUrl: generatedImageUrl,
-                      })
-                    }
-                  >
-                    <Image
-                      source={{ uri: generatedImageUrl }}
-                      style={styles.generatedImage}
-                      contentFit="cover"
-                      transition={500}
-                    />
-                    <View style={styles.imageTapHint}>
-                      <Text style={styles.imageTapText}>Tap to expand</Text>
-                    </View>
-                  </Pressable>
-                </Animated.View>
-              )}
-            </>
-          }
+          ListFooterComponent={isTyping ? <TypingIndicator /> : null}
         />
 
         {/* Input */}
@@ -157,7 +160,7 @@ const makeStyles = (colors: any) => StyleSheet.create({
   },
   imageReveal: {
     paddingHorizontal: spacing.md,
-    marginBottom: spacing.md,
+    marginVertical: spacing.md,
   },
   imageLabel: {
     ...typography.caption,

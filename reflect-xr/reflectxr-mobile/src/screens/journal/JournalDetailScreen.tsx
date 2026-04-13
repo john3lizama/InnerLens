@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, Text, View, ScrollView, Pressable } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,11 +7,21 @@ import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import EmotionTagList from '../../components/journal/EmotionTagList';
 import { typography, spacing, borderRadius, shadow } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
-import { mockJournals } from '../../data/mockJournals';
 import { formatFullDate, formatTime } from '../../utils/formatDate';
 import { JournalStackParamList } from '../../navigation/types';
+import * as journalService from '../../services/journalService';
 
 type Route = RouteProp<JournalStackParamList, 'JournalDetail'>;
+
+interface JournalDetail {
+  id: string;
+  content: string;
+  emotion_tags: { emotion: string; intensity: number }[];
+  image: { id: string; image_url: string; thumbnail_url?: string } | null;
+  reflection_prompt_used?: string;
+  created_at: string;
+  word_count: number;
+}
 
 export default function JournalDetailScreen() {
   const navigation = useNavigation();
@@ -20,9 +30,37 @@ export default function JournalDetailScreen() {
   const { colors } = useTheme();
   const styles = makeStyles(colors);
 
-  const journal = mockJournals.find((j) => j.id === journalId);
+  const [journal, setJournal] = useState<JournalDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  if (!journal) {
+  useEffect(() => {
+    loadJournal();
+  }, [journalId]);
+
+  const loadJournal = async () => {
+    try {
+      const data = await journalService.getJournalById(journalId);
+      setJournal(data);
+    } catch (err) {
+      console.error('Failed to load journal:', err);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaWrapper>
+        <View style={styles.notFound}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </SafeAreaWrapper>
+    );
+  }
+
+  if (error || !journal) {
     return (
       <SafeAreaWrapper>
         <View style={styles.notFound}>
@@ -46,14 +84,16 @@ export default function JournalDetailScreen() {
         </Pressable>
 
         {/* Image */}
-        <View style={styles.imageContainer}>
-          <Image
-            source={{ uri: journal.image.image_url }}
-            style={styles.image}
-            contentFit="cover"
-            transition={300}
-          />
-        </View>
+        {journal.image && (
+          <View style={styles.imageContainer}>
+            <Image
+              source={{ uri: journal.image.image_url }}
+              style={styles.image}
+              contentFit="cover"
+              transition={300}
+            />
+          </View>
+        )}
 
         {/* Date */}
         <Text style={styles.date}>

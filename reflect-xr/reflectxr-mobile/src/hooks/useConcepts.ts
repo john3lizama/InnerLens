@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Concept } from '../types/concept';
-import { mockConcepts } from '../data/mockConcepts';
-import { mockStyles, Style, styleCategories } from '../data/mockStyles';
-
-const USE_MOCK = true;
+import { Style, styleCategories } from '../data/mockStyles';
+import * as conceptService from '../services/conceptService';
 
 export function useConcepts() {
   const [concepts, setConcepts] = useState<Concept[]>([]);
@@ -15,13 +13,18 @@ export function useConcepts() {
   }, []);
 
   const loadData = async () => {
-    if (USE_MOCK) {
-      setConcepts(mockConcepts);
-      setStyles(mockStyles);
+    try {
+      const [conceptsRes, stylesRes] = await Promise.all([
+        conceptService.getConcepts(),
+        conceptService.getStyles(),
+      ]);
+      setConcepts(conceptsRes.concepts);
+      setStyles(stylesRes.styles as Style[]);
+    } catch (err) {
+      console.error('Failed to load concepts/styles:', err);
+    } finally {
       setLoading(false);
-      return;
     }
-    // TODO: call conceptService.getConcepts() and conceptService.getStyles()
   };
 
   return { concepts, styles, styleCategories, loading };

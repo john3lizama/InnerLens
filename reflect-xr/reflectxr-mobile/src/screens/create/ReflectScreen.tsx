@@ -21,6 +21,7 @@ import ReflectionPrompt from '../../components/create/ReflectionPrompt';
 import { typography, spacing, borderRadius, shadow } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 import { CreateStackParamList } from '../../navigation/types';
+import * as journalService from '../../services/journalService';
 
 type Route = RouteProp<CreateStackParamList, 'Reflect'>;
 
@@ -28,7 +29,7 @@ export default function ReflectScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<Route>();
   const { colors } = useTheme();
-  const { image, concept } = route.params;
+  const { image, concept, sessionId } = route.params;
 
   const [journalText, setJournalText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -60,22 +61,26 @@ export default function ReflectScreen() {
   const handleSave = async () => {
     if (!journalText.trim()) return;
     setSaving(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    // Simulate saving to backend
-    await new Promise((r) => setTimeout(r, 800));
-    setSaving(false);
-
-    Alert.alert(
-      'Reflection Saved',
-      'Your journal entry has been saved.',
-      [
-        {
-          text: 'Done',
-          onPress: () => navigation.popToTop(),
-        },
-      ]
-    );
+    try {
+      await journalService.createJournal(
+        image.id,
+        sessionId,
+        journalText.trim(),
+        concept.reflection_prompt,
+      );
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        'Reflection Saved',
+        'Your journal entry has been saved.',
+        [{ text: 'Done', onPress: () => navigation.popToTop() }],
+      );
+    } catch (err) {
+      console.error('Failed to save journal:', err);
+      Alert.alert('Save Failed', 'Could not save your reflection. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
