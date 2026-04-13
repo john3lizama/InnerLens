@@ -23,6 +23,7 @@ from app.models.session import Session
 from app.models.message import Message
 from app.models.generated_image import GeneratedImage
 from app.models.concept import Concept
+from app.models.journal_entry import JournalEntry
 from app.ai.safety import check_crisis
 from app.ai.system_prompts import MINDMATE_SYSTEM_PROMPT
 from app.ai.emotion_map import EMOTION_TO_CONCEPT, DEFAULT_CONCEPT
@@ -88,6 +89,28 @@ async def handle_chat_message(
 
     # Build the context array for OpenAI
     context = [{"role": "system", "content": MINDMATE_SYSTEM_PROMPT}]
+
+    # ── Inject journal history as context ────────────────────────────────
+    journal_result = await db.execute(
+        select(JournalEntry)
+        .where(JournalEntry.user_id == user_id)
+        .order_by(JournalEntry.created_at.desc())
+        .limit(5)
+    )
+    journals = journal_result.scalars().all()
+    if journals:
+        journal_summaries = []
+        for j in reversed(journals):
+            tags = ", ".join(t["emotion"] for t in (j.emotion_tags or []))
+            snippet = j.content[:150] + ("..." if len(j.content) > 150 else "")
+            journal_summaries.append(f"- \"{snippet}\" (emotions: {tags or 'none'})")
+        journal_context = (
+            "The user has previously saved these journal reflections (most recent last). "
+            "You may gently reference their past themes if relevant, but don't force it:\n"
+            + "\n".join(journal_summaries)
+        )
+        context.append({"role": "system", "content": journal_context})
+
     # Inject extra context (e.g. previous session transcript for memory recall)
     # as a system message before the conversation history.
     if extra_context:
