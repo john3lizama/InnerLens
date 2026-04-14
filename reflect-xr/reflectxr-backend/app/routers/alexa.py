@@ -28,7 +28,9 @@ from app.config import settings
 from app.models.user import User
 from app.models.session import Session as ChatSession
 from app.models.message import Message as ChatMessage
+from app.models.generated_image import GeneratedImage
 from app.services.chat_service import handle_chat_message, generate_from_conversation
+from app.schemas.alexa import AlexaGalleryResponse, AlexaGalleryItem, AlexaGalleryImage
 
 # Keywords that indicate the user is asking MindMate to recall a past conversation
 _MEMORY_KEYWORDS = [
@@ -172,8 +174,16 @@ async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None, body
 
     new_session_id = str(result["session_id"])
     reply = result["reply"]
+    is_crisis = result.get("is_crisis", False)
     should_generate = result.get("should_generate_image", False)
     conversation_text = result.get("conversation_text", "")
+
+    # If crisis detected, end the session immediately — don't reprompt
+    if is_crisis:
+        return _speak(
+            speech=reply,
+            should_end=True,
+        )
 
     # Background task: extract emotions and optionally generate image.
     # Runs after Alexa response is already sent — no timeout risk.
@@ -229,6 +239,66 @@ async def _handle_user_speech(user_text: str, session_id: uuid.UUID | None, body
         reprompt="Is there anything else you'd like to share?",
         should_end=False,
     )
+
+
+# ── Gallery endpoint ──────────────────────────────────────────────────────
+
+@router.get("/gallery", response_model=AlexaGalleryResponse)
+async def alexa_gallery():
+    """
+    GET /alexa/gallery — Public endpoint returning artwork generated from
+    Alexa voice conversations. No auth required (demo data only).
+    """
+    async with async_session() as db:
+        # Get demo user's chat sessions, newest first
+        session_result = await db.execute(
+            select(ChatSession)
+            .where(ChatSession.user_id == ALEXA_DEMO_USER_ID)
+            .where(ChatSession.source == "chat")
+            .order_by(ChatSession.created_at.desc())
+            .limit(50)
+        )
+        sessions = session_result.scalars().all()
+
+        items: list[AlexaGalleryItem] = []
+        for session in sessions:
+            # Load images for this session
+            img_result = await db.execute(
+                select(GeneratedImage)
+                .where(GeneratedImage.session_id == session.id)
+                .order_by(GeneratedImage.created_at.desc())
+            )
+            images = img_result.scalars().all()
+            if not images:
+                continue
+
+            # Get emotion tags from last assistant message
+            msg_result = await db.execute(
+                select(ChatMessage)
+                .where(ChatMessage.session_id == session.id)
+                .where(ChatMessage.role == "assistant")
+                .where(ChatMessage.emotion_tags.isnot(None))
+                .order_by(ChatMessage.created_at.desc())
+                .limit(1)
+            )
+            last_msg = msg_result.scalar_one_or_none()
+
+            items.append(AlexaGalleryItem(
+                session_id=session.id,
+                created_at=session.created_at,
+                emotion_tags=last_msg.emotion_tags if last_msg else None,
+                images=[
+                    AlexaGalleryImage(
+                        id=img.id,
+                        image_url=img.image_url,
+                        thumbnail_url=img.thumbnail_url,
+                        created_at=img.created_at,
+                    )
+                    for img in images
+                ],
+            ))
+
+        return AlexaGalleryResponse(items=items, count=len(items))
 
 
 # ── Main webhook ──────────────────────────────────────────────────────────
