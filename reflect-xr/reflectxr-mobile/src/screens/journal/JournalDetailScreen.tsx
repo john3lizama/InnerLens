@@ -1,17 +1,32 @@
+/**
+ * JournalDetailScreen — Redesigned.
+ *
+ * Changes:
+ * - Full-width artwork at 3:4 aspect ratio (was 4:3)
+ * - Removed word count (adds quantification to a reflective space)
+ * - Removed "Back" text label — just chevron
+ * - Reflection text with generous line height (28px)
+ * - Removed card wrapper around journal content
+ * - Uses surface tokens for mode-aware styling
+ * - Date and tags as quiet metadata
+ */
+
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, Pressable, ActivityIndicator } from 'react-native';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { StyleSheet, Text, View, ScrollView, Pressable, ActivityIndicator, Alert, Platform } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { File, Paths } from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import EmotionTagList from '../../components/journal/EmotionTagList';
-import { typography, spacing, borderRadius, shadow } from '../../theme';
+import { typography, spacing, borderRadius } from '../../theme';
+import { fade } from '../../theme/motion';
+import { haptic } from '../../theme/motion';
 import { useTheme } from '../../context/ThemeContext';
 import { formatFullDate, formatTime } from '../../utils/formatDate';
-import { JournalStackParamList } from '../../navigation/types';
 import * as journalService from '../../services/journalService';
-
-type Route = RouteProp<JournalStackParamList, 'JournalDetail'>;
 
 interface JournalDetail {
   id: string;
@@ -24,15 +39,16 @@ interface JournalDetail {
 }
 
 export default function JournalDetailScreen() {
-  const navigation = useNavigation();
-  const route = useRoute<Route>();
+  const navigation = useNavigation() as any;
+  const route = useRoute() as any;
   const { journalId } = route.params;
-  const { colors } = useTheme();
-  const styles = makeStyles(colors);
+  const { surfaces } = useTheme();
+  const styles = makeStyles(surfaces);
 
   const [journal, setJournal] = useState<JournalDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadJournal();
@@ -50,11 +66,57 @@ export default function JournalDetailScreen() {
     }
   };
 
+  const saveImageToPhone = async () => {
+    if (!journal?.image?.image_url || saving) return;
+
+    setSaving(true);
+    haptic.selection();
+
+    try {
+      // Request permission
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission needed',
+          'Please allow access to your photo library to save images.',
+        );
+        setSaving(false);
+        return;
+      }
+
+      // Download to a temporary file using SDK 55 File API
+      const fileExt = journal.image.image_url.split('.').pop()?.split('?')[0] || 'jpg';
+      const fileName = `reflectxr-${journal.id}-${Date.now()}.${fileExt}`;
+      const destination = new File(Paths.cache, fileName);
+
+      // Remove if it already exists
+      if (destination.exists) {
+        destination.delete();
+      }
+
+      const downloadedFile = await File.downloadFileAsync(
+        journal.image.image_url,
+        destination,
+      );
+
+      // Save to camera roll / media library
+      await MediaLibrary.saveToLibraryAsync(downloadedFile.uri);
+
+      haptic.success();
+      Alert.alert('Saved', 'Image saved to your photo library.');
+    } catch (err) {
+      console.error('Failed to save image:', err);
+      Alert.alert('Error', 'Could not save the image. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaWrapper>
-        <View style={styles.notFound}>
-          <ActivityIndicator size="large" color={colors.primary} />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#6C63FF" />
         </View>
       </SafeAreaWrapper>
     );
@@ -63,8 +125,8 @@ export default function JournalDetailScreen() {
   if (error || !journal) {
     return (
       <SafeAreaWrapper>
-        <View style={styles.notFound}>
-          <Text style={styles.notFoundText}>Journal entry not found</Text>
+        <View style={styles.centered}>
+          <Text style={styles.errorText}>Journal entry not found</Text>
         </View>
       </SafeAreaWrapper>
     );
@@ -77,43 +139,73 @@ export default function JournalDetailScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Back button */}
-        <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={24} color={colors.text} />
-          <Text style={styles.backText}>Back</Text>
+        {/* Back button — chevron only */}
+        <Pressable
+          onPress={() => {
+            // If the Journal stack has history, go back normally.
+            // Otherwise navigate to JournalList (e.g. when deep-linked from Home tab).
+            if (navigation.canGoBack()) {
+              const state = navigation.getState();
+              if (state && state.index > 0) {
+                navigation.goBack();
+              } else {
+                navigation.navigate('JournalList' as never);
+              }
+            } else {
+              navigation.navigate('JournalList' as never);
+            }
+          }}
+          style={styles.backButton}
+          hitSlop={12}
+        >
+          <Ionicons name="chevron-back" size={24} color={surfaces.text.primary} />
         </Pressable>
 
-        {/* Image */}
+        {/* Artwork — full width, 3:4 aspect */}
         {journal.image && (
-          <View style={styles.imageContainer}>
+          <Animated.View
+            entering={FadeIn.duration(fade.reverent)}
+            style={styles.imageContainer}
+          >
             <Image
               source={{ uri: journal.image.image_url }}
               style={styles.image}
               contentFit="cover"
               transition={300}
             />
+          </Animated.View>
+        )}
+
+        {/* Date + Save button row */}
+        <View style={styles.metaRow}>
+          <Text style={styles.date}>
+            {formatFullDate(journal.created_at)} at {formatTime(journal.created_at)}
+          </Text>
+          {journal.image && (
+            <Pressable
+              onPress={saveImageToPhone}
+              style={styles.saveButton}
+              hitSlop={12}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color={surfaces.text.secondary} />
+              ) : (
+                <Ionicons name="download-outline" size={22} color={surfaces.text.secondary} />
+              )}
+            </Pressable>
+          )}
+        </View>
+
+        {/* Emotion Tags */}
+        {journal.emotion_tags.length > 0 && (
+          <View style={styles.tagsSection}>
+            <EmotionTagList tags={journal.emotion_tags} />
           </View>
         )}
 
-        {/* Date */}
-        <Text style={styles.date}>
-          {formatFullDate(journal.created_at)} at {formatTime(journal.created_at)}
-        </Text>
-
-        {/* Emotion Tags */}
-        <View style={styles.tagsSection}>
-          <EmotionTagList tags={journal.emotion_tags} />
-        </View>
-
-        {/* Journal Content */}
-        <View style={styles.contentCard}>
-          <Text style={styles.journalText}>{journal.content}</Text>
-        </View>
-
-        {/* Word count */}
-        <Text style={styles.wordCount}>
-          {journal.word_count} words
-        </Text>
+        {/* Journal Content — no card wrapper, generous line height */}
+        <Text style={styles.journalText}>{journal.content}</Text>
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -121,7 +213,7 @@ export default function JournalDetailScreen() {
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (surfaces: any) => StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -130,58 +222,48 @@ const makeStyles = (colors: any) => StyleSheet.create({
     paddingTop: spacing.sm,
   },
   backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: spacing.md,
     paddingVertical: spacing.sm,
+    alignSelf: 'flex-start',
   },
-  backText: {
-    ...typography.body,
-    color: colors.text,
-    marginLeft: spacing.xs,
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  saveButton: {
+    padding: spacing.xs,
   },
   imageContainer: {
     borderRadius: borderRadius.xl,
     overflow: 'hidden',
     marginBottom: spacing.lg,
-    ...shadow.md,
   },
   image: {
     width: '100%',
-    aspectRatio: 4 / 3,
+    aspectRatio: 3 / 4,
   },
   date: {
-    ...typography.bodySmall,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
+    ...typography.caption,
+    color: surfaces.text.tertiary,
+    flex: 1,
   },
   tagsSection: {
     marginBottom: spacing.lg,
   },
-  contentCard: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.xl,
-    padding: spacing.lg,
-    ...shadow.sm,
-  },
   journalText: {
     ...typography.body,
-    color: colors.text,
-    lineHeight: 26,
+    color: surfaces.text.primary,
+    lineHeight: 28,
   },
-  wordCount: {
-    ...typography.caption,
-    color: colors.textTertiary,
-    textAlign: 'right',
-    marginTop: spacing.md,
-  },
-  notFound: {
+  centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  notFoundText: {
+  errorText: {
     ...typography.body,
-    color: colors.textSecondary,
+    color: surfaces.text.secondary,
   },
 });
