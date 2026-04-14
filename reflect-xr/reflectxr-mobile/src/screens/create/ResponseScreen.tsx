@@ -1,8 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react';
+/**
+ * ResponseScreen — Redesigned generation moment.
+ *
+ * Changes:
+ * - Orb size increased to 100, breathing slowed to 2800ms (more meditative)
+ * - Loading text rotates every 4s with calmer copy
+ * - Removed dim overlay (orb on regular background, not dramatic)
+ * - Orb dissolves outward (scale 1→1.3, opacity 1→0) when images arrive
+ * - Images emerge with gentle fade + scale after orb dissolves
+ * - Uses motion tokens and haptic tokens throughout
+ * - Refined copy: "What emerged" / "Take your time."
+ */
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import Animated, {
+  FadeIn,
   FadeInUp,
   useSharedValue,
   useAnimatedStyle,
@@ -11,34 +24,30 @@ import Animated, {
   Easing,
   withRepeat,
   withSequence,
-  runOnJS,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import Button from '../../components/ui/Button';
 import ImageGrid from '../../components/create/ImageGrid';
-import { typography, spacing, borderRadius } from '../../theme';
+import { typography, spacing } from '../../theme';
+import { generation, fade, enterConfig } from '../../theme/motion';
+import { haptic } from '../../theme/motion';
 import { useTheme } from '../../context/ThemeContext';
-import { CreateStackParamList } from '../../navigation/types';
 import { GeneratedImage } from '../../types/image';
 import * as generateService from '../../services/generateService';
 
-type Nav = NativeStackNavigationProp<CreateStackParamList, 'Response'>;
-type Route = RouteProp<CreateStackParamList, 'Response'>;
-
-const ORB_SIZE = 80;
+const ORB_SIZE = 100;
 
 const LOADING_MESSAGES = [
-  'Translating your thoughts into form…',
-  'Shaping your inner world…',
-  'Bringing your emotions to light…',
+  'Holding what you shared\u2026',
+  'Finding the right form\u2026',
+  'Almost there\u2026',
 ];
 
 export default function ResponseScreen() {
-  const navigation = useNavigation<Nav>();
-  const route = useRoute<Route>();
-  const { colors } = useTheme();
+  const navigation = useNavigation() as any;
+  const route = useRoute() as any;
+  const { colors, surfaces } = useTheme();
   const { prompt, style, concept } = route.params;
 
   const [images, setImages] = useState<GeneratedImage[]>([]);
@@ -46,39 +55,56 @@ export default function ResponseScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [messageIndex, setMessageIndex] = useState(0);
+  const [showResults, setShowResults] = useState(false);
 
   // Orb animations
-  const orbScale = useSharedValue(0.85);
-  const glowOpacity = useSharedValue(0.3);
-  const overlayOpacity = useSharedValue(0);
+  const orbScale = useSharedValue(generation.breathMin);
+  const glowOpacity = useSharedValue(generation.glowMin);
   const orbContainerScale = useSharedValue(0);
+  const orbContainerOpacity = useSharedValue(1);
   const textOpacity = useSharedValue(1);
 
   const startOrbAnimations = useCallback(() => {
-    // Morph in
-    orbContainerScale.value = withSpring(1, { damping: 14, stiffness: 100 });
-    overlayOpacity.value = withTiming(0.3, { duration: 400 });
+    // Bloom in using signature spring
+    orbContainerScale.value = withSpring(1, { damping: 16, stiffness: 90, mass: 1.2 });
 
-    // Breathing
+    // Meditative breathing
     orbScale.value = withRepeat(
-      withTiming(1.15, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+      withTiming(generation.breathMax, {
+        duration: generation.breathDuration,
+        easing: Easing.inOut(Easing.ease),
+      }),
       -1,
       true,
     );
     glowOpacity.value = withRepeat(
-      withTiming(0.6, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+      withTiming(generation.glowMax, {
+        duration: generation.breathDuration,
+        easing: Easing.inOut(Easing.ease),
+      }),
       -1,
       true,
     );
-  }, [orbScale, glowOpacity, overlayOpacity, orbContainerScale]);
+  }, [orbScale, glowOpacity, orbContainerScale]);
 
-  const stopOrbAnimations = useCallback(() => {
-    orbContainerScale.value = withTiming(0, { duration: 300 });
-    overlayOpacity.value = withTiming(0, { duration: 300 });
-  }, [orbContainerScale, overlayOpacity]);
+  const dissolveOrb = useCallback(() => {
+    // Orb dissolves outward — becomes the artwork
+    orbContainerScale.value = withTiming(generation.dissolve.scaleTo, {
+      duration: generation.dissolve.duration,
+    });
+    orbContainerOpacity.value = withTiming(generation.dissolve.opacityTo, {
+      duration: generation.dissolve.duration,
+    });
+    textOpacity.value = withTiming(0, { duration: fade.fast });
+
+    // Brief pause, then show results
+    setTimeout(() => {
+      setShowResults(true);
+    }, generation.dissolve.duration * 0.6);
+  }, [orbContainerScale, orbContainerOpacity, textOpacity]);
 
   useEffect(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    haptic.medium();
     startOrbAnimations();
     generateArt();
   }, []);
@@ -88,13 +114,13 @@ export default function ResponseScreen() {
     if (!loading) return;
     const interval = setInterval(() => {
       textOpacity.value = withSequence(
-        withTiming(0, { duration: 300 }),
-        withTiming(1, { duration: 300 }),
+        withTiming(0, { duration: generation.textFadeDuration }),
+        withTiming(1, { duration: generation.textFadeDuration }),
       );
       setTimeout(() => {
         setMessageIndex((prev) => (prev + 1) % LOADING_MESSAGES.length);
-      }, 300);
-    }, 3000);
+      }, generation.textFadeDuration);
+    }, generation.textRotateInterval);
     return () => clearInterval(interval);
   }, [loading, textOpacity]);
 
@@ -108,19 +134,18 @@ export default function ResponseScreen() {
         source: 'concept' as const,
         created_at: new Date().toISOString(),
       })));
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      haptic.heavy();
     } catch (err) {
       console.error('Image generation failed:', err);
       Alert.alert('Generation Failed', 'Could not generate images. Please try again.', [
         { text: 'Go Back', onPress: () => navigation.goBack() },
       ]);
+      return;
     } finally {
-      stopOrbAnimations();
       setLoading(false);
+      dissolveOrb();
     }
   };
-
-  const styles = makeStyles(colors);
 
   const selectedImage = images.find((img) => img.id === selectedId);
 
@@ -134,6 +159,8 @@ export default function ResponseScreen() {
     navigation.navigate('Reflect', { image: selectedImage, concept, sessionId });
   };
 
+  const styles = makeStyles(surfaces);
+
   const orbAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: orbScale.value }],
   }));
@@ -142,27 +169,20 @@ export default function ResponseScreen() {
     opacity: glowOpacity.value,
   }));
 
-  const overlayAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: overlayOpacity.value,
-  }));
-
   const orbContainerAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: orbContainerScale.value }],
-    opacity: orbContainerScale.value,
+    opacity: orbContainerOpacity.value,
   }));
 
   const textAnimatedStyle = useAnimatedStyle(() => ({
     opacity: textOpacity.value,
   }));
 
-  if (loading) {
-    return (
-      <SafeAreaWrapper>
+  return (
+    <SafeAreaWrapper>
+      {/* Generation orb — visible while loading and during dissolution */}
+      {!showResults && (
         <View style={styles.loadingContainer}>
-          {/* Dim overlay */}
-          <Animated.View style={[styles.overlay, overlayAnimatedStyle]} />
-
-          {/* Orb */}
           <Animated.View style={[styles.orbWrapper, orbContainerAnimatedStyle]}>
             {/* Glow ring */}
             <Animated.View
@@ -172,7 +192,7 @@ export default function ResponseScreen() {
                   width: ORB_SIZE * 1.6,
                   height: ORB_SIZE * 1.6,
                   borderRadius: (ORB_SIZE * 1.6) / 2,
-                  backgroundColor: colors.primary + '18',
+                  backgroundColor: surfaces.orb.ringColor,
                 },
                 glowAnimatedStyle,
               ]}
@@ -190,7 +210,7 @@ export default function ResponseScreen() {
               ]}
             >
               <LinearGradient
-                colors={[...colors.gradient.primary]}
+                colors={colors.gradient.primary}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={{ width: ORB_SIZE, height: ORB_SIZE }}
@@ -200,55 +220,54 @@ export default function ResponseScreen() {
 
           {/* Rotating text */}
           <Animated.Text
-            style={[styles.loadingMessage, { color: colors.textSecondary }, textAnimatedStyle]}
+            style={[styles.loadingMessage, textAnimatedStyle]}
           >
             {LOADING_MESSAGES[messageIndex]}
           </Animated.Text>
         </View>
-      </SafeAreaWrapper>
-    );
-  }
+      )}
 
-  return (
-    <SafeAreaWrapper>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <Animated.View entering={FadeInUp.duration(400)}>
-          <Text style={styles.title}>Your Artwork</Text>
-          <Text style={styles.subtitle}>
-            Tap an image that resonates with you
-          </Text>
-        </Animated.View>
+      {/* Results — emerge after orb dissolves */}
+      {showResults && (
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View entering={FadeIn.duration(fade.slow)}>
+            <Text style={styles.title}>What emerged</Text>
+            <Text style={styles.subtitle}>
+              Take your time. Tap the one that feels right.
+            </Text>
+          </Animated.View>
 
-        <Animated.View entering={FadeInUp.duration(500).delay(100)}>
-          <ImageGrid
-            images={images}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-          />
-        </Animated.View>
-
-        {selectedId && (
-          <Animated.View
-            entering={FadeInUp.duration(400).delay(300)}
-            style={styles.footer}
-          >
-            <Button
-              title="Reflect on This"
-              onPress={handleReflect}
-              fullWidth
+          <Animated.View entering={FadeIn.duration(fade.reverent).delay(generation.emerge.delay)}>
+            <ImageGrid
+              images={images}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
             />
           </Animated.View>
-        )}
-      </ScrollView>
+
+          {selectedId && (
+            <Animated.View
+              entering={FadeInUp.duration(enterConfig.content.duration)}
+              style={styles.footer}
+            >
+              <Button
+                title="Sit with this"
+                onPress={handleReflect}
+                fullWidth
+              />
+            </Animated.View>
+          )}
+        </ScrollView>
+      )}
     </SafeAreaWrapper>
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (surfaces: any) => StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -261,10 +280,6 @@ const makeStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
-  },
   orbWrapper: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -272,16 +287,17 @@ const makeStyles = (colors: any) => StyleSheet.create({
   loadingMessage: {
     ...typography.bodySmall,
     fontStyle: 'italic',
+    color: surfaces.text.secondary,
     marginTop: spacing.xl,
     textAlign: 'center',
   },
   title: {
-    ...typography.h1,
-    color: colors.text,
+    ...typography.h2,
+    color: surfaces.text.primary,
   },
   subtitle: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
+    color: surfaces.text.secondary,
     marginTop: spacing.xs,
     marginBottom: spacing.xl,
   },

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import Button from '../../components/ui/Button';
@@ -9,12 +8,9 @@ import Input from '../../components/ui/Input';
 import { typography, spacing, borderRadius, shadow } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../hooks/useAuth';
-import { AuthStackParamList } from '../../navigation/types';
-
-type Nav = NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 
 export default function LoginScreen() {
-  const navigation = useNavigation<Nav>();
+  const navigation = useNavigation() as any;
   const { colors } = useTheme();
   const { login } = useAuth();
   const [email, setEmail] = useState('');

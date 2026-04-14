@@ -1,21 +1,29 @@
+/**
+ * PromptEditScreen — Redesigned.
+ *
+ * Changes:
+ * - Refined copy: "Your words" title, invitational subtitle
+ * - Style badge uses surface tokens
+ * - Input uses surface-token-aware Input component
+ * - "Create" instead of "Generate Artwork" (single word, less aggressive)
+ * - Uses medium haptic weight on the primary action
+ */
+
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, KeyboardAvoidingView, Platform } from 'react-native';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { typography, spacing, borderRadius } from '../../theme';
+import { enterConfig } from '../../theme/motion';
 import { useTheme } from '../../context/ThemeContext';
-import { CreateStackParamList } from '../../navigation/types';
-
-type Nav = NativeStackNavigationProp<CreateStackParamList, 'PromptEdit'>;
-type Route = RouteProp<CreateStackParamList, 'PromptEdit'>;
 
 export default function PromptEditScreen() {
-  const navigation = useNavigation<Nav>();
-  const route = useRoute<Route>();
-  const { colors } = useTheme();
+  const navigation = useNavigation() as any;
+  const route = useRoute() as any;
+  const { surfaces } = useTheme();
   const { prompt, style, concept } = route.params;
 
   const [editedPrompt, setEditedPrompt] = useState(prompt);
@@ -28,7 +36,7 @@ export default function PromptEditScreen() {
     });
   };
 
-  const styles = makeStyles(colors);
+  const styles = makeStyles(surfaces);
 
   return (
     <SafeAreaWrapper>
@@ -37,31 +45,38 @@ export default function PromptEditScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={styles.container}>
-          <Text style={styles.title}>Edit Your Prompt</Text>
-          <Text style={styles.subtitle}>
-            Fine-tune the prompt before generating your artwork
-          </Text>
+          <Animated.View entering={FadeIn.duration(enterConfig.quiet.duration)}>
+            <Text style={styles.title}>Your words</Text>
+            <Text style={styles.subtitle}>
+              Add anything you'd like. Or leave it as is.
+            </Text>
+          </Animated.View>
 
-          <View style={styles.styleBadge}>
-            <Text style={styles.styleLabel}>Style:</Text>
-            <Text style={styles.styleName}>{style}</Text>
+          {/* Context badge: concept + style */}
+          <View style={styles.contextRow}>
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{concept.title}</Text>
+            </View>
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{style}</Text>
+            </View>
           </View>
 
           <Input
-            label="Your Prompt"
             value={editedPrompt}
             onChangeText={setEditedPrompt}
             multiline
             containerStyle={styles.inputContainer}
-            placeholder="Describe what you'd like to create..."
+            placeholder="Say more, if you want to..."
           />
 
           <View style={styles.footer}>
             <Button
-              title="Generate Artwork"
+              title="Create"
               onPress={handleSubmit}
               disabled={editedPrompt.trim().length === 0}
               fullWidth
+              hapticWeight="medium"
             />
           </View>
         </View>
@@ -70,7 +85,7 @@ export default function PromptEditScreen() {
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (surfaces: any) => StyleSheet.create({
   flex: {
     flex: 1,
   },
@@ -80,34 +95,30 @@ const makeStyles = (colors: any) => StyleSheet.create({
     paddingTop: spacing.md,
   },
   title: {
-    ...typography.h1,
-    color: colors.text,
+    ...typography.h2,
+    color: surfaces.text.primary,
   },
   subtitle: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
+    color: surfaces.text.secondary,
     marginTop: spacing.xs,
     marginBottom: spacing.lg,
   },
-  styleBadge: {
+  contextRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.overlay.primary,
-    alignSelf: 'flex-start',
-    borderRadius: borderRadius.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    gap: spacing.sm,
     marginBottom: spacing.lg,
   },
-  styleLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginRight: spacing.xs,
+  badge: {
+    backgroundColor: surfaces.overlay.primaryTint,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
   },
-  styleName: {
+  badgeText: {
     ...typography.caption,
     fontWeight: '600',
-    color: colors.primary,
+    color: '#6C63FF',
   },
   inputContainer: {
     flex: 1,
