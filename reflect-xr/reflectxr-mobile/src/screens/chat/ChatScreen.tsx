@@ -1,3 +1,14 @@
+/**
+ * ChatScreen — Refined.
+ *
+ * Changes:
+ * - Header subtitle: "Here when you need" (was "Your creative companion")
+ * - Image label: "From our conversation" (was "Art created from our conversation")
+ * - Uses surface tokens for mode-aware styling
+ * - Removed shadow imports, uses surface system
+ * - Reduced header visual weight
+ */
+
 import React, { useRef, useCallback } from 'react';
 import {
   StyleSheet,
@@ -7,31 +18,53 @@ import {
   Platform,
   Pressable,
   Text,
+  Dimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Image } from 'expo-image';
 import Animated, { FadeInUp } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import ChatBubble from '../../components/chat/ChatBubble';
 import ChatInput from '../../components/chat/ChatInput';
+import CrisisAlert from '../../components/chat/CrisisAlert';
 import TypingIndicator from '../../components/chat/TypingIndicator';
-import { typography, spacing, borderRadius, shadow } from '../../theme';
+import { typography, spacing, borderRadius } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useChat } from '../../hooks/useChat';
-import { ChatStackParamList } from '../../navigation/types';
 import { Message } from '../../types/chat';
-
-type Nav = NativeStackNavigationProp<ChatStackParamList, 'Chat'>;
 
 const IMAGE_PREFIX = '__IMAGE__';
 
 export default function ChatScreen() {
-  const navigation = useNavigation<Nav>();
-  const { colors } = useTheme();
-  const { messages, isTyping, sendMessage } = useChat();
+  const navigation = useNavigation() as any;
+  const { surfaces } = useTheme();
+  const { messages, isTyping, sendMessage, showCrisisAlert, dismissCrisisAlert } = useChat();
   const flatListRef = useRef<FlatList>(null);
-  const styles = makeStyles(colors);
+  const insets = useSafeAreaInsets();
+  const styles = makeStyles(surfaces);
+
+  // Tab bar height (to clear the native bottom tab bar for the input)
+  let tabBarHeight = 0;
+  try {
+    tabBarHeight = useBottomTabBarHeight();
+  } catch {
+    // not inside a tab navigator
+  }
+
+  // Compute reliable top/bottom safe areas.
+  // Both insets AND Constants.statusBarHeight can return 0 on iOS under
+  // native UITabBarController + native stack, so use device-aware fallbacks.
+  // Using `||` (not `??`) so 0 correctly falls back to the default.
+  const { height: screenH, width: screenW } = Dimensions.get('screen');
+  const hasDynamicIslandOrNotch = Platform.OS === 'ios' && screenH / screenW > 2.0;
+  const topSafeArea =
+    insets.top || (Platform.OS === 'ios' ? (hasDynamicIslandOrNotch ? 59 : 47) : 24);
+  const bottomSafeArea =
+    insets.bottom || (Platform.OS === 'ios' ? (hasDynamicIslandOrNotch ? 34 : 20) : 0);
+  // Native tab bar (~49px) + home indicator area
+  const bottomClearance = tabBarHeight || (Platform.OS === 'ios' ? 49 + bottomSafeArea : 56);
 
   const handleSend = useCallback(
     (text: string) => {
@@ -50,7 +83,7 @@ export default function ChatScreen() {
         const imageUrl = item.content.slice(IMAGE_PREFIX.length);
         return (
           <Animated.View entering={FadeInUp.springify().damping(18)} style={styles.imageReveal}>
-            <Text style={styles.imageLabel}>Art created from our conversation</Text>
+            <Text style={styles.imageLabel}>From our conversation</Text>
             <Pressable
               onPress={() =>
                 navigation.navigate('ChatImageReveal', { imageUrl })
@@ -84,20 +117,22 @@ export default function ChatScreen() {
   );
 
   return (
-    <SafeAreaWrapper edges={['top']}>
+    <View style={styles.flex}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerIcon}>
-            <Text style={styles.headerEmoji}>💜</Text>
-          </View>
+        {/* Header — paddingTop uses insets.top with a device-aware fallback */}
+        <View style={[styles.header, { paddingTop: topSafeArea + spacing.md }]}>
+          <Image
+            source={require('../../../assets/mindmate-icon.svg')}
+            style={styles.headerIcon}
+            contentFit="contain"
+          />
           <View>
             <Text style={styles.headerTitle}>MindMate</Text>
-            <Text style={styles.headerSubtitle}>Your creative companion</Text>
+            <Text style={styles.headerSubtitle}>Here when you need</Text>
           </View>
         </View>
 
@@ -117,13 +152,16 @@ export default function ChatScreen() {
 
         {/* Input */}
         <ChatInput onSend={handleSend} disabled={isTyping} />
-        <View style={{ height: Platform.OS === 'ios' ? 80 : 60 }} />
+        <View style={{ height: bottomClearance }} />
       </KeyboardAvoidingView>
-    </SafeAreaWrapper>
+
+      {/* Crisis Alert Modal */}
+      <CrisisAlert visible={showCrisisAlert} onClose={dismissCrisisAlert} />
+    </View>
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (surfaces: any) => StyleSheet.create({
   flex: {
     flex: 1,
   },
@@ -131,29 +169,24 @@ const makeStyles = (colors: any) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.borderLight,
+    borderBottomColor: surfaces.edge('input').borderColor || 'transparent',
   },
   headerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.overlay.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     marginRight: spacing.md,
-  },
-  headerEmoji: {
-    fontSize: 20,
   },
   headerTitle: {
     ...typography.h3,
-    color: colors.text,
+    color: surfaces.text.primary,
   },
   headerSubtitle: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: surfaces.text.secondary,
+    marginTop: 1,
   },
   messageList: {
     paddingVertical: spacing.md,
@@ -164,7 +197,7 @@ const makeStyles = (colors: any) => StyleSheet.create({
   },
   imageLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: surfaces.text.secondary,
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
@@ -172,19 +205,18 @@ const makeStyles = (colors: any) => StyleSheet.create({
     width: '100%',
     aspectRatio: 1,
     borderRadius: borderRadius.xl,
-    ...shadow.md,
   },
   imageTapHint: {
     position: 'absolute',
     bottom: spacing.md,
     alignSelf: 'center',
-    backgroundColor: colors.overlay.dark,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: borderRadius.full,
   },
   imageTapText: {
     ...typography.caption,
-    color: colors.textInverse,
+    color: '#FFFFFF',
   },
 });
