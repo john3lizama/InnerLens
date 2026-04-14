@@ -23,13 +23,14 @@ s3_client = boto3.client(
 )
 
 
-async def upload_image(file_bytes: bytes, key: str) -> str:
+async def upload_image(file_bytes: bytes, key: str, content_type: str = "image/png") -> str:
     """
     Upload image bytes to S3. Returns the public URL.
 
     Parameters:
-        file_bytes: The raw image data (PNG)
-        key:        The S3 object key (path), e.g., "generated/abc123/img1.png"
+        file_bytes:   The raw image data
+        key:          The S3 object key (path), e.g., "generated/abc123/img1.png"
+        content_type: MIME type (default: image/png)
 
     Returns:
         The public URL where the image can be accessed
@@ -38,6 +39,6 @@ async def upload_image(file_bytes: bytes, key: str) -> str:
         Bucket=settings.S3_BUCKET_NAME,
         Key=key,
         Body=file_bytes,
-        ContentType="image/png",
+        ContentType=content_type,
     )
     return f"{settings.S3_PUBLIC_URL}/{key}"

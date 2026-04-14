@@ -32,12 +32,41 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class UserUpdateRequest(BaseModel):
+    """PATCH /auth/me — Update profile fields (except email, which uses verification flow)."""
+    display_name: str | None = None
+    preferred_style: str | None = None
+
+
+class RegisterVerifyRequest(BaseModel):
+    """POST /auth/register/verify — Verify email with 4-digit code to complete registration."""
+    email: EmailStr
+    code: str
+
+
+class EmailChangeRequest(BaseModel):
+    """POST /auth/me/request-email-change — Initiate email change."""
+    new_email: EmailStr
+
+
+class EmailVerifyRequest(BaseModel):
+    """POST /auth/me/verify-email-change — Confirm with 4-digit code."""
+    new_email: EmailStr
+    code: str
+
+
 # ── Response schemas (what the API returns) ──────────────────────────────
 
+class RefreshRequest(BaseModel):
+    """POST /auth/refresh — Exchange a refresh token for new tokens."""
+    refresh_token: str
+
+
 class TokenResponse(BaseModel):
-    """Returned after successful register or login."""
+    """Returned after successful register, login, or refresh."""
     access_token: str
-    token_type: str = "bearer"    # Always "bearer" for JWT auth
+    refresh_token: str
+    token_type: str = "bearer"
 
 
 class UserResponse(BaseModel):
@@ -46,6 +75,7 @@ class UserResponse(BaseModel):
     email: str
     display_name: str
     preferred_style: str | None
+    profile_image_url: str | None = None
     created_at: datetime
 
     # model_config tells Pydantic to read data from SQLAlchemy model attributes.

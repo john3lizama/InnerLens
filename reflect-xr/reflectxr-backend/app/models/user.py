@@ -39,6 +39,9 @@ class User(Base):
     # Optional: user's favorite art style (e.g., "Watercolor")
     preferred_style: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    # Optional: URL to the user's profile picture (stored in S3)
+    profile_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+
     # ── Timestamps ───────────────────────────────────────────────────────
     # server_default=func.now() means Postgres sets the time, not Python.
     # This is more reliable because the DB clock is the single source of truth.

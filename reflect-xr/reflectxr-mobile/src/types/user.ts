@@ -3,6 +3,7 @@ export interface User {
   email: string;
   display_name: string;
   preferred_style?: string;
+  profile_image_url?: string;
   created_at: string;
 }
 

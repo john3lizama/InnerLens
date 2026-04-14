@@ -33,9 +33,16 @@ client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0)
 
 CRISIS_KEYWORDS = [
     "hurt myself", "kill myself", "don't want to live",
-    "end my life", "want to die", "suicide",
+    "end my life", "want to die", "wanna die",
+    "suicide", "suicidal",
     "self harm", "self-harm", "cut myself",
     "end it all", "no reason to live",
+    "giving up on life", "give up on life",
+    "don't wanna live", "dont want to live", "dont wanna live",
+    "better off dead", "wish i was dead", "wish i were dead",
+    "not worth living", "can't go on", "cant go on",
+    "jump off", "hang myself", "overdose",
+    "killing myself", "hurting myself",
 ]
 
 CRISIS_RESPONSE = (
