@@ -3,18 +3,26 @@ import { useColorScheme } from 'react-native';
 import { lightColors, darkColors, type AppColors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { spacing, borderRadius, shadow } from '../theme/spacing';
+import { createSurfaceTheme, type ResolvedSurfaceTheme } from '../theme/surfaces';
 
 interface ThemeContextType {
+  /** Legacy color object — backward compatible with all existing screens */
   colors: AppColors;
+  /** NEW: Role-based surface system with resolved values per mode */
+  surfaces: ResolvedSurfaceTheme;
   typography: typeof typography;
   spacing: typeof spacing;
   borderRadius: typeof borderRadius;
+  /** @deprecated Use surfaces.resolve() for new components */
   shadow: typeof shadow;
   isDark: boolean;
 }
 
+const defaultSurfaces = createSurfaceTheme('light');
+
 const ThemeContext = createContext<ThemeContextType>({
   colors: lightColors,
+  surfaces: defaultSurfaces,
   typography,
   spacing,
   borderRadius,
@@ -29,6 +37,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const theme = useMemo<ThemeContextType>(
     () => ({
       colors: isDark ? darkColors : lightColors,
+      surfaces: createSurfaceTheme(isDark ? 'dark' : 'light'),
       typography,
       spacing,
       borderRadius,
