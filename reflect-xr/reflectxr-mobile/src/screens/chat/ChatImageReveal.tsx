@@ -1,21 +1,18 @@
 import React from 'react';
 import { StyleSheet, View, Pressable, Text, Dimensions, Alert, Share } from 'react-native';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { typography, spacing, borderRadius } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
-import { ChatStackParamList } from '../../navigation/types';
-
-type Route = RouteProp<ChatStackParamList, 'ChatImageReveal'>;
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ChatImageReveal() {
-  const navigation = useNavigation();
-  const route = useRoute<Route>();
+  const navigation = useNavigation() as any;
+  const route = useRoute() as any;
   const { colors } = useTheme();
   const { imageUrl } = route.params;
   const styles = makeStyles(colors);
@@ -76,7 +73,7 @@ export default function ChatImageReveal() {
       {/* Actions */}
       <Animated.View entering={FadeIn.delay(500)} style={styles.actions}>
         <Pressable onPress={handleReport} style={styles.actionButton} hitSlop={8}>
-          <Ionicons name="flag-outline" size={20} color="rgba(255,255,255,0.7)" />
+          <MaterialCommunityIcons name="message-alert-outline" size={20} color="rgba(255,255,255,0.7)" />
           <Text style={styles.actionText}>Report</Text>
         </Pressable>
         <Pressable onPress={handleShare} style={styles.actionButton} hitSlop={8}>
