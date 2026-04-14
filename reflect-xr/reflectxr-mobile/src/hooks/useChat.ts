@@ -1,12 +1,15 @@
 import { useState, useCallback } from 'react';
 import { Message } from '../types/chat';
 import * as chatService from '../services/chatService';
+import { useMindMate } from '../context/MindMateContext';
 
 export function useChat() {
+  const { markUnread } = useMindMate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
+  const [showCrisisAlert, setShowCrisisAlert] = useState(false);
 
   const sendMessage = useCallback(async (text: string) => {
     const userMsg: Message = {
@@ -30,6 +33,12 @@ export function useChat() {
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
+      markUnread();
+
+      // If crisis detected, show the crisis alert modal
+      if (res.is_crisis) {
+        setShowCrisisAlert(true);
+      }
 
       // If the backend says it's time to generate an image, do it
       if (res.should_generate_image && !generatedImageUrl) {
@@ -71,12 +80,18 @@ export function useChat() {
     setGeneratedImageUrl(null);
   }, []);
 
+  const dismissCrisisAlert = useCallback(() => {
+    setShowCrisisAlert(false);
+  }, []);
+
   return {
     messages,
     isTyping,
     sessionId,
     generatedImageUrl,
+    showCrisisAlert,
     sendMessage,
     clearChat,
+    dismissCrisisAlert,
   };
 }
