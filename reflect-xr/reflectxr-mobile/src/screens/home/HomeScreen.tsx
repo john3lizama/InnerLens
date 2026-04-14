@@ -1,41 +1,42 @@
-import React, { useState, useCallback, useEffect } from 'react';
+/**
+ * HomeScreen — Redesigned as editorial entry point.
+ *
+ * Three zones instead of 7+ stacked modules:
+ * 1. Greeting + Hero CTA (dominant, invites creation)
+ * 2. Continuation (most recent reflection OR today's concept)
+ * 3. Discovery (MindMate teaser + concept preview)
+ *
+ * Removed: Alexa card (moved to Profile), "How It Works" steps,
+ * "Most Popular" badge, glow pulse animation, horizontal journal scroll.
+ */
+
+import React, { useState, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   ScrollView,
   Pressable,
-  FlatList,
-  ActivityIndicator,
 } from 'react-native';
-import Animated, {
-  FadeInUp,
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withTiming,
-  Easing,
-} from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
-import Card from '../../components/ui/Card';
-import { typography, spacing, borderRadius, shadow } from '../../theme';
+import PressableSurface from '../../components/ui/PressableSurface';
+import Surface from '../../components/ui/Surface';
+import StreakBadge from '../../components/profile/StreakBadge';
+import StreakModal from '../../components/profile/StreakModal';
+import { typography, spacing, borderRadius } from '../../theme';
+import { enterConfig } from '../../theme/motion';
+import { haptic } from '../../theme/motion';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useConcepts } from '../../hooks/useConcepts';
 import { conceptIcons } from '../../data/mockConcepts';
 import { formatRelativeDate } from '../../utils/formatDate';
 import * as journalService from '../../services/journalService';
-
-const STEPS = [
-  { icon: 'color-palette-outline' as const, title: 'Choose a Concept', desc: 'Pick a creative theme that speaks to you' },
-  { icon: 'brush-outline' as const, title: 'Generate Art', desc: 'AI creates artwork based on your emotions' },
-  { icon: 'journal-outline' as const, title: 'Reflect & Journal', desc: 'Write about what the art means to you' },
-];
+import type { StreakData } from '../../services/journalService';
 
 interface JournalEntry {
   id: string;
@@ -47,23 +48,26 @@ interface JournalEntry {
 }
 
 export default function HomeScreen() {
-  const { colors } = useTheme();
-  const styles = makeStyles(colors);
-  const navigation = useNavigation<any>();
+  const { surfaces, colors } = useTheme();
+  const styles = makeStyles(surfaces, colors);
+  const navigation = useNavigation() as any;
   const { user } = useAuth();
-  const { concepts, loading: conceptsLoading } = useConcepts();
+  const { concepts } = useConcepts();
   const [recentJournals, setRecentJournals] = useState<JournalEntry[]>([]);
   const [journalsLoading, setJournalsLoading] = useState(true);
+  const [streakData, setStreakData] = useState<StreakData | null>(null);
+  const [streakModalVisible, setStreakModalVisible] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       loadJournals();
+      loadStreak();
     }, [])
   );
 
   const loadJournals = async () => {
     try {
-      const res = await journalService.getJournals(3, 0);
+      const res = await journalService.getJournals(1, 0);
       setRecentJournals(res.entries);
     } catch (err) {
       console.error('Failed to load journals:', err);
@@ -72,34 +76,18 @@ export default function HomeScreen() {
     }
   };
 
-  // CTA glow pulse animation
-  const ctaGlowOpacity = useSharedValue(0.2);
-  useEffect(() => {
-    ctaGlowOpacity.value = withRepeat(
-      withTiming(0.35, { duration: 3000, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true,
-    );
-  }, [ctaGlowOpacity]);
-  const ctaGlowStyle = useAnimatedStyle(() => ({
-    shadowOpacity: ctaGlowOpacity.value,
-  }));
-
-  const isNewUser = !journalsLoading && recentJournals.length === 0;
-
-  // Curated concept picks from real data
-  const todaysPrompt = concepts[2] || concepts[0];
-  const mostPopular = concepts[0];
-  const exploreConcepts = concepts.slice(1, 4);
-
-  const navigateToConcept = (concept: typeof concepts[0]) => {
-    if (!concept) return;
-    Haptics.selectionAsync();
-    navigation.navigate('Create', {
-      screen: 'PromptDesign',
-      params: { concept },
-    });
+  const loadStreak = async () => {
+    try {
+      const data = await journalService.getStreak();
+      setStreakData(data);
+    } catch (err) {
+      console.error('Failed to load streak:', err);
+    }
   };
+
+  const hasReflections = !journalsLoading && recentJournals.length > 0;
+  const todaysConcept = concepts[2] || concepts[0];
+  const previewConcepts = concepts.slice(0, 3);
 
   return (
     <SafeAreaWrapper gradient>
@@ -108,249 +96,197 @@ export default function HomeScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <Animated.View entering={FadeInUp.duration(400).delay(0)}>
+        {/* ══════════════════════════════════════════════════════
+            ZONE 1: Greeting + Hero CTA
+            ══════════════════════════════════════════════════════ */}
+        <Animated.View entering={FadeIn.duration(enterConfig.quiet.duration)}>
           <View style={styles.header}>
             <View>
-              <Text style={styles.greeting}>
-                {isNewUser ? 'Welcome,' : 'Welcome back,'}
-              </Text>
+              <Text style={styles.greeting}>Hello,</Text>
               <Text style={styles.name}>{user?.display_name || 'Friend'}</Text>
             </View>
-            <Pressable
-              style={styles.avatar}
-              onPress={() => navigation.navigate('Profile')}
-            >
-              <Ionicons name="person" size={20} color={colors.primary} />
-            </Pressable>
+            {streakData && (
+              <StreakBadge
+                streak={streakData.current_streak}
+                onPress={() => setStreakModalVisible(true)}
+              />
+            )}
           </View>
         </Animated.View>
 
-        {/* Create CTA */}
-        <Animated.View entering={FadeInUp.duration(400).delay(100)} style={ctaGlowStyle}>
-          <Pressable onPress={() => navigation.navigate('Create')}>
-            <LinearGradient
-              colors={[...colors.gradient.primary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.ctaCard}
-            >
-              <View style={styles.ctaContent}>
-                <Text style={styles.ctaTitle}>
-                  {isNewUser ? 'Start Your First Reflection' : 'Begin Creating'}
-                </Text>
-                <Text style={styles.ctaSubtitle}>
-                  Explore your emotions through AI-generated art
-                </Text>
-              </View>
-              <View style={styles.ctaIcon}>
-                <Ionicons name="sparkles" size={32} color="rgba(255,255,255,0.9)" />
-              </View>
-            </LinearGradient>
-          </Pressable>
-        </Animated.View>
-
-        {/* Today's Prompt */}
-        {todaysPrompt && (
-          <Animated.View entering={FadeInUp.duration(400).delay(200)}>
-            <Pressable onPress={() => navigateToConcept(todaysPrompt)}>
-              <View style={styles.todayCard}>
-                <LinearGradient
-                  colors={[`${colors.accent}18`, `${colors.primary}10`]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.todayGradient}
-                />
-                <View style={styles.todayHeader}>
-                  <Ionicons name="sunny-outline" size={16} color={colors.accent} />
-                  <Text style={styles.todayLabel}>Today's Prompt</Text>
-                </View>
-                <View style={styles.todayRow}>
-                  <View style={styles.todayIconWrap}>
-                    <Ionicons name={(conceptIcons[todaysPrompt.slug] || 'color-palette-outline') as any} size={24} color={colors.accent} />
-                  </View>
-                  <View style={styles.todayContent}>
-                    <Text style={styles.todayTitle}>{todaysPrompt.title}</Text>
-                    <Text style={styles.todayDesc} numberOfLines={1}>
-                      {todaysPrompt.prompt_template.replace('[DROPDOWN]', todaysPrompt.dropdown_options[0])}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
-                </View>
-              </View>
-            </Pressable>
-          </Animated.View>
-        )}
-
-        {/* MindMate Teaser */}
-        <Animated.View entering={FadeInUp.duration(400).delay(300)}>
-          <Card
-            onPress={() => {
-              Haptics.selectionAsync();
-              navigation.navigate('MindMate');
-            }}
-            style={styles.mindmateCard}
+        {/* Hero CTA — the primary invitation */}
+        <Animated.View entering={FadeInUp.duration(enterConfig.content.duration).delay(60)}>
+          <PressableSurface
+            role="elevated"
+            onPress={() => navigation.navigate('Create')}
+            hapticType="medium"
+            radius="xl"
+            style={styles.heroCard}
           >
-            <View style={styles.mindmateRow}>
-              <View style={styles.mindmateIcon}>
-                <Ionicons
-                  name="chatbubble-ellipses"
-                  size={24}
-                  color={colors.secondary}
-                />
+            <View style={styles.heroContent}>
+              <Text style={styles.heroTitle}>
+                Turn what you're feeling{'\n'}into something you can see.
+              </Text>
+              <View style={styles.heroButton}>
+                <Text style={styles.heroButtonText}>Create</Text>
+                <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
               </View>
-              <View style={styles.mindmateContent}>
-                <Text style={styles.mindmateTitle}>Talk to MindMate</Text>
-                <Text style={styles.mindmateSubtitle}>
-                  Share how you feel — art happens naturally
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
             </View>
-          </Card>
+            <View style={styles.heroIconWrap}>
+              <Ionicons name="sparkles" size={28} color="rgba(108,99,255,0.4)" />
+            </View>
+          </PressableSurface>
         </Animated.View>
 
-        {/* Most Popular */}
-        {mostPopular && (
-          <Animated.View entering={FadeInUp.duration(400).delay(400)}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="trending-up" size={18} color={colors.primary} />
-              <Text style={styles.sectionTitle}>Most Popular</Text>
-            </View>
-            <Pressable onPress={() => navigateToConcept(mostPopular)}>
-              <View style={styles.popularCard}>
-                <View style={styles.popularIconWrap}>
-                  <Ionicons name={(conceptIcons[mostPopular.slug] || 'color-palette-outline') as any} size={26} color={colors.primary} />
+        {/* ══════════════════════════════════════════════════════
+            ZONE 2: Continuation
+            One item: recent reflection OR today's concept
+            ══════════════════════════════════════════════════════ */}
+        <Animated.View entering={FadeInUp.duration(enterConfig.content.duration).delay(120)}>
+          {hasReflections && recentJournals[0] ? (
+            // Most recent reflection — image-forward
+            <PressableSurface
+              role="ground"
+              onPress={() => {
+                haptic.selection();
+                navigation.navigate('Journal', {
+                  screen: 'JournalDetail',
+                  params: { journalId: recentJournals[0].id },
+                  initial: false,
+                });
+              }}
+              radius="xl"
+              style={styles.continuationCard}
+            >
+              {recentJournals[0].image && (
+                <Image
+                  source={{ uri: recentJournals[0].image.image_url }}
+                  style={styles.continuationImage}
+                  contentFit="cover"
+                  transition={200}
+                />
+              )}
+              <View style={styles.continuationMeta}>
+                <Text style={styles.continuationLabel}>Your last reflection</Text>
+                <Text style={styles.continuationDate}>
+                  {formatRelativeDate(recentJournals[0].created_at)}
+                </Text>
+                <Text style={styles.continuationPreview} numberOfLines={1}>
+                  {recentJournals[0].content}
+                </Text>
+              </View>
+            </PressableSurface>
+          ) : todaysConcept ? (
+            // Today's concept — for new or returning users with no journals
+            <PressableSurface
+              role="ground"
+              onPress={() => {
+                haptic.selection();
+                navigation.navigate('Create', {
+                  screen: 'PromptDesign',
+                  params: { concept: todaysConcept },
+                });
+              }}
+              padded
+              radius="xl"
+              style={styles.continuationCard}
+            >
+              <Text style={styles.continuationLabel}>A starting point</Text>
+              <View style={styles.conceptRow}>
+                <View style={styles.conceptIcon}>
+                  <Ionicons
+                    name={(conceptIcons[todaysConcept.slug] || 'color-palette-outline') as any}
+                    size={20}
+                    color={colors.accent}
+                  />
                 </View>
-                <View style={styles.popularContent}>
-                  <Text style={styles.popularTitle}>{mostPopular.title}</Text>
-                  <Text style={styles.popularDesc} numberOfLines={2}>
-                    {mostPopular.prompt_template.replace('[DROPDOWN]', `your ${mostPopular.dropdown_label.toLowerCase()}`)}
+                <View style={styles.conceptContent}>
+                  <Text style={styles.conceptTitle}>{todaysConcept.title}</Text>
+                  <Text style={styles.conceptDesc} numberOfLines={1}>
+                    {todaysConcept.reflection_prompt}
                   </Text>
                 </View>
-                <View style={styles.popularBadge}>
-                  <Ionicons name="flame" size={14} color={colors.accent} />
-                </View>
               </View>
-            </Pressable>
-          </Animated.View>
-        )}
+            </PressableSurface>
+          ) : null}
+        </Animated.View>
 
-        {/* Explore Concepts */}
-        {exploreConcepts.length > 0 && (
-          <Animated.View entering={FadeInUp.duration(400).delay(500)} style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Explore Concepts</Text>
-              <Pressable onPress={() => navigation.navigate('Create')}>
-                <Text style={styles.seeAll}>See All</Text>
-              </Pressable>
+        {/* ══════════════════════════════════════════════════════
+            ZONE 3: Discovery — quiet, secondary
+            ══════════════════════════════════════════════════════ */}
+        <Animated.View entering={FadeInUp.duration(enterConfig.content.duration).delay(180)}>
+          {/* MindMate teaser */}
+          <PressableSurface
+            role="ground"
+            onPress={() => {
+              haptic.selection();
+              navigation.navigate('MindMate');
+            }}
+            padded
+            radius="xl"
+            style={styles.discoveryCard}
+          >
+            <View style={styles.discoveryRow}>
+              <Image
+                source={require('../../../assets/mindmate-icon.svg')}
+                style={styles.discoveryIcon}
+                contentFit="cover"
+              />
+              <View style={styles.discoveryContent}>
+                <Text style={styles.discoveryTitle}>MindMate</Text>
+                <Text style={styles.discoverySubtitle}>
+                  A conversation that can become art
+                </Text>
+              </View>
             </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.conceptsList}
-            >
-              {exploreConcepts.map((concept) => (
-                <Pressable
-                  key={concept.id}
-                  style={styles.conceptChip}
-                  onPress={() => navigateToConcept(concept)}
-                >
-                  <Ionicons name={(conceptIcons[concept.slug] || 'color-palette-outline') as any} size={18} color={colors.primary} />
-                  <Text style={styles.conceptChipTitle}>{concept.title}</Text>
-                  <Ionicons name="arrow-forward" size={14} color={colors.primary} />
-                </Pressable>
-              ))}
-            </ScrollView>
-          </Animated.View>
-        )}
+          </PressableSurface>
 
-        {/* Recent Reflections (returning user) */}
-        {!isNewUser && recentJournals.length > 0 && (
-          <Animated.View entering={FadeInUp.duration(400).delay(600)} style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Recent Reflections</Text>
-              <Pressable onPress={() => navigation.navigate('Journal')}>
-                <Text style={styles.seeAll}>See All</Text>
-              </Pressable>
+          {/* Concept preview chips */}
+          {previewConcepts.length > 0 && (
+            <View style={styles.conceptPreview}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.conceptChipRow}
+              >
+                {previewConcepts.map((concept) => (
+                  <Pressable
+                    key={concept.id}
+                    style={[styles.conceptChip, { borderColor: surfaces.edge('input').borderColor }]}
+                    onPress={() => {
+                      haptic.selection();
+                      navigation.navigate('Create', {
+                        screen: 'PromptDesign',
+                        params: { concept },
+                      });
+                    }}
+                  >
+                    <Ionicons
+                      name={(conceptIcons[concept.slug] || 'color-palette-outline') as any}
+                      size={16}
+                      color={surfaces.text.secondary}
+                    />
+                    <Text style={styles.conceptChipText}>{concept.title}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
             </View>
-            <FlatList
-              horizontal
-              data={recentJournals}
-              keyExtractor={(item) => item.id}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.journalList}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.journalCard}
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                  }}
-                >
-                  {item.image && (
-                    <View style={styles.journalImageContainer}>
-                      <Image
-                        source={{ uri: item.image.image_url }}
-                        style={styles.journalImage}
-                        contentFit="cover"
-                        transition={200}
-                      />
-                      <LinearGradient
-                        colors={['transparent', 'rgba(0,0,0,0.4)']}
-                        style={styles.journalImageOverlay}
-                      />
-                    </View>
-                  )}
-                  <View style={styles.journalMeta}>
-                    <Text style={styles.journalDate}>
-                      {formatRelativeDate(item.created_at)}
-                    </Text>
-                    <Text style={styles.journalPreview} numberOfLines={2}>
-                      {item.content}
-                    </Text>
-                  </View>
-                </Pressable>
-              )}
-            />
-          </Animated.View>
-        )}
-
-        {/* How It Works (new user) */}
-        {isNewUser && (
-          <Animated.View entering={FadeInUp.duration(400).delay(600)} style={styles.section}>
-            <Text style={styles.sectionTitle}>How It Works</Text>
-            <View style={styles.stepsContainer}>
-              {STEPS.map((step, index) => (
-                <Animated.View
-                  key={step.title}
-                  entering={FadeInUp.duration(350).delay(700 + index * 100)}
-                >
-                  <View style={styles.stepRow}>
-                    <View style={styles.stepIconContainer}>
-                      <View style={styles.stepIcon}>
-                        <Ionicons name={step.icon} size={22} color={colors.primary} />
-                      </View>
-                      {index < STEPS.length - 1 && <View style={styles.stepLine} />}
-                    </View>
-                    <View style={styles.stepContent}>
-                      <Text style={styles.stepNumber}>Step {index + 1}</Text>
-                      <Text style={styles.stepTitle}>{step.title}</Text>
-                      <Text style={styles.stepDesc}>{step.desc}</Text>
-                    </View>
-                  </View>
-                </Animated.View>
-              ))}
-            </View>
-          </Animated.View>
-        )}
+          )}
+        </Animated.View>
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      <StreakModal
+        visible={streakModalVisible}
+        onClose={() => setStreakModalVisible(false)}
+        streakData={streakData}
+      />
     </SafeAreaWrapper>
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (surfaces: any, colors: any) => StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -358,6 +294,8 @@ const makeStyles = (colors: any) => StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
+
+  // Header
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -366,308 +304,154 @@ const makeStyles = (colors: any) => StyleSheet.create({
   },
   greeting: {
     ...typography.bodySmall,
-    color: colors.textSecondary,
+    color: surfaces.text.secondary,
   },
   name: {
-    ...typography.h1,
-    color: colors.text,
+    ...typography.h2,
+    color: surfaces.text.primary,
   },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.overlay.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ctaCard: {
-    borderRadius: borderRadius.xl,
+
+  // Hero CTA
+  heroCard: {
     padding: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.md,
-    ...shadow.lg,
-    ...shadow.glow,
+    marginBottom: spacing.lg,
   },
-  ctaContent: {
+  heroContent: {
     flex: 1,
   },
-  ctaTitle: {
-    ...typography.h2,
-    color: colors.textInverse,
-    marginBottom: spacing.xs,
+  heroTitle: {
+    ...typography.h3,
+    color: surfaces.text.primary,
+    lineHeight: 24,
+    marginBottom: spacing.md,
   },
-  ctaSubtitle: {
-    ...typography.bodySmall,
-    color: 'rgba(255,255,255,0.8)',
+  heroButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#6C63FF',
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+    gap: spacing.xs,
   },
-  ctaIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+  heroButtonText: {
+    ...typography.button,
+    color: '#FFFFFF',
+    fontSize: 14,
+  },
+  heroIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: surfaces.overlay.primaryTint,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: spacing.md,
   },
 
-  // Today's Prompt
-  todayCard: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.xl,
-    padding: spacing.lg,
+  // Continuation zone
+  continuationCard: {
     marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
     overflow: 'hidden',
-    ...shadow.sm,
   },
-  todayGradient: {
-    position: 'absolute' as const,
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: borderRadius.xl,
+  continuationImage: {
+    width: '100%',
+    height: 140,
   },
-  todayHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.sm,
+  continuationMeta: {
+    padding: spacing.lg,
   },
-  todayLabel: {
+  continuationLabel: {
     ...typography.caption,
-    color: colors.accent,
-    fontWeight: '600',
+    color: surfaces.text.tertiary,
+    marginBottom: spacing.xs,
   },
-  todayRow: {
+  continuationDate: {
+    ...typography.caption,
+    color: surfaces.text.tertiary,
+    marginBottom: spacing.xs,
+  },
+  continuationPreview: {
+    ...typography.bodySmall,
+    color: surfaces.text.secondary,
+  },
+  conceptRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: spacing.sm,
   },
-  todayIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: `${colors.accent}15`,
+  conceptIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: `${colors.accent}12`,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
   },
-  todayContent: {
+  conceptContent: {
     flex: 1,
   },
-  todayTitle: {
+  conceptTitle: {
     ...typography.h3,
-    color: colors.text,
+    color: surfaces.text.primary,
     marginBottom: 2,
   },
-  todayDesc: {
+  conceptDesc: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: surfaces.text.secondary,
   },
 
-  // MindMate
-  mindmateCard: {
+  // Discovery zone
+  discoveryCard: {
     marginBottom: spacing.md,
   },
-  mindmateRow: {
+  discoveryRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  mindmateIcon: {
-    width: 44,
-    height: 44,
+  discoveryIcon: {
+    width: 40,
+    height: 40,
     borderRadius: borderRadius.md,
-    backgroundColor: `${colors.secondary}25`,
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'hidden',
     marginRight: spacing.md,
   },
-  mindmateContent: {
+  discoveryContent: {
     flex: 1,
   },
-  mindmateTitle: {
+  discoveryTitle: {
     ...typography.h3,
-    color: colors.text,
+    color: surfaces.text.primary,
   },
-  mindmateSubtitle: {
+  discoverySubtitle: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: surfaces.text.secondary,
     marginTop: 2,
   },
 
-  // Most Popular
-  popularCard: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.xl,
-    padding: spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-    marginBottom: spacing.md,
-    ...shadow.sm,
+  // Concept chips
+  conceptPreview: {
+    marginTop: spacing.xs,
   },
-  popularIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: `${colors.primary}15`,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  popularContent: {
-    flex: 1,
-  },
-  popularTitle: {
-    ...typography.h3,
-    color: colors.text,
-    marginBottom: 2,
-  },
-  popularDesc: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  popularBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: `${colors.accent}15`,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: spacing.sm,
-  },
-
-  // Sections
-  section: {
-    marginTop: spacing.sm,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.md,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  sectionTitle: {
-    ...typography.h3,
-    color: colors.text,
-  },
-  seeAll: {
-    ...typography.bodySmall,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-
-  // Explore Concepts
-  conceptsList: {
+  conceptChipRow: {
     gap: spacing.sm,
   },
   conceptChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.full,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderWidth: 1,
-    borderColor: colors.cardBorder,
-    ...shadow.sm,
   },
-  conceptChipTitle: {
-    ...typography.bodySmall,
-    fontWeight: '600',
-    color: colors.text,
-  },
-
-  // Journals
-  journalList: {
-    gap: spacing.md,
-  },
-  journalCard: {
-    width: 200,
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.xl,
-    overflow: 'hidden',
-    ...shadow.md,
-  },
-  journalImageContainer: {
-    position: 'relative' as const,
-  },
-  journalImage: {
-    width: '100%',
-    height: 120,
-  },
-  journalImageOverlay: {
-    position: 'absolute' as const,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 40,
-  },
-  journalMeta: {
-    padding: spacing.md,
-  },
-  journalDate: {
+  conceptChipText: {
     ...typography.caption,
-    color: colors.textTertiary,
-    marginBottom: spacing.xs,
-  },
-  journalPreview: {
-    ...typography.bodySmall,
-    color: colors.textSecondary,
-  },
-
-  // How It Works (new user)
-  stepsContainer: {
-    marginTop: spacing.md,
-  },
-  stepRow: {
-    flexDirection: 'row',
-  },
-  stepIconContainer: {
-    alignItems: 'center',
-    marginRight: spacing.md,
-  },
-  stepIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: `${colors.primary}15`,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepLine: {
-    width: 2,
-    flex: 1,
-    backgroundColor: `${colors.primary}20`,
-    marginVertical: spacing.xs,
-  },
-  stepContent: {
-    flex: 1,
-    paddingBottom: spacing.lg,
-  },
-  stepNumber: {
-    ...typography.caption,
-    color: colors.primary,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  stepTitle: {
-    ...typography.h3,
-    color: colors.text,
-    marginBottom: spacing.xs,
-  },
-  stepDesc: {
-    ...typography.bodySmall,
-    color: colors.textSecondary,
+    fontWeight: '500',
+    color: surfaces.text.secondary,
   },
 });

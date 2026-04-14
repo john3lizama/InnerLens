@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img">
+  <title>MindTap</title>
+  <desc>MindTap icon — a stylized mind with a tap point and ripple rings</desc>
+
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#3B2E7A"/>
+      <stop offset="100%" stop-color="#1A1530"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7B68EE" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#7B68EE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Glow halo -->
+  <ellipse cx="100" cy="100" rx="115" ry="115" fill="url(#halo)"/>
+
+  <!-- Rounded square background -->
+  <rect width="200" height="200" rx="46" fill="#241C58"/>
+  <rect width="200" height="200" rx="46" fill="url(#bg)" opacity="0.9"/>
+
+  <!-- Ripple rings centered on tap point (100, 112) -->
+  <circle cx="100" cy="112" r="62" fill="none" stroke="#7B68EE" stroke-width="1"   opacity="0.18"/>
+  <circle cx="100" cy="112" r="48" fill="none" stroke="#7B68EE" stroke-width="1.2" opacity="0.30"/>
+  <circle cx="100" cy="112" r="33" fill="none" stroke="#7B68EE" stroke-width="1.4" opacity="0.45"/>
+
+  <!-- Neck -->
+  <rect x="88" y="124" width="24" height="20" rx="4" fill="#7B68EE" opacity="0.85"/>
+
+  <!-- Shoulder hint -->
+  <path d="M60,148 Q100,138 140,148" fill="none" stroke="#7B68EE" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+
+  <!-- Head outer -->
+  <ellipse cx="100" cy="90" rx="36" ry="42" fill="#6B5FD6"/>
+
+  <!-- Head inner (face plane) -->
+  <ellipse cx="100" cy="95" rx="28" ry="34" fill="#7B68EE"/>
+
+  <!-- Brain fold lines -->
+  <path d="M82,82 Q88,74 96,80"   fill="none" stroke="#A897F5" stroke-width="2" stroke-linecap="round"/>
+  <path d="M104,80 Q112,73 118,82" fill="none" stroke="#A897F5" stroke-width="2" stroke-linecap="round"/>
+  <path d="M80,94 Q86,86 94,92"   fill="none" stroke="#A897F5" stroke-width="2" stroke-linecap="round"/>
+  <path d="M106,92 Q114,85 120,94" fill="none" stroke="#A897F5" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Tap dot at crown -->
+  <circle cx="100" cy="55" r="7" fill="#C4B8FF"/>
+  <circle cx="100" cy="55" r="4" fill="#ffffff"/>
+
+  <!-- Tap spark lines -->
+  <line x1="100" y1="42" x2="100" y2="38" stroke="#C4B8FF" stroke-width="2" stroke-linecap="round"/>
+  <line x1="112" y1="46" x2="115" y2="43" stroke="#C4B8FF" stroke-width="2" stroke-linecap="round"/>
+  <line x1="88"  y1="46" x2="85"  y2="43" stroke="#C4B8FF" stroke-width="2" stroke-linecap="round"/>
+  <line x1="116" y1="55" x2="120" y2="55" stroke="#C4B8FF" stroke-width="2" stroke-linecap="round"/>
+  <line x1="84"  y1="55" x2="80"  y2="55" stroke="#C4B8FF" stroke-width="2" stroke-linecap="round"/>
+</svg>
