@@ -36,3 +36,9 @@ export type ChatStackParamList = {
   Chat: undefined;
   ChatImageReveal: { imageUrl: string };
 };
+
+export type HomeStackParamList = {
+  HomeMain: undefined;
+  AlexaGallery: undefined;
+  AlexaImageReveal: { imageUrl: string };
+};

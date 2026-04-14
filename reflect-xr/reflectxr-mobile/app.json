@@ -23,7 +23,14 @@
     },
     "plugins": [
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow ReflectXR to save artwork to your photo library.",
+          "savePhotosPermission": "Allow ReflectXR to save artwork to your photo library."
+        }
+      ]
     ]
   }
 }

@@ -1,15 +1,23 @@
+/**
+ * MainTabs — Native bottom tab navigator with Liquid Glass on iOS 26+.
+ *
+ * Uses React Navigation v8's createBottomTabNavigator which renders via:
+ * - UITabBarController on iOS (automatic Liquid Glass on iOS 26+)
+ * - BottomNavigationView on Android (Material Design)
+ *
+ * Icons use SF Symbols (iOS) and Material Symbols (Android) for native look.
+ */
+
 import React from 'react';
-import { StyleSheet, View, Text, Platform } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import { Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { BlurView } from 'expo-blur';
-import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../context/ThemeContext';
-import { borderRadius, typography, spacing } from '../theme';
-import {
+import { useMindMate } from '../context/MindMateContext';
+import type {
   MainTabParamList,
+  HomeStackParamList,
   CreateStackParamList,
   JournalStackParamList,
   ChatStackParamList,
@@ -26,11 +34,30 @@ import ChatImageReveal from '../screens/chat/ChatImageReveal';
 import JournalListScreen from '../screens/journal/JournalListScreen';
 import JournalDetailScreen from '../screens/journal/JournalDetailScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
+import AlexaScreen from '../screens/alexa/AlexaScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
+const HomeStackNav = createNativeStackNavigator<HomeStackParamList>();
 const CreateStackNav = createNativeStackNavigator<CreateStackParamList>();
 const JournalStackNav = createNativeStackNavigator<JournalStackParamList>();
 const ChatStackNav = createNativeStackNavigator<ChatStackParamList>();
+
+function HomeNavigator() {
+  const { colors } = useTheme();
+  return (
+    <HomeStackNav.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: 'slide_from_right',
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <HomeStackNav.Screen name="HomeMain" component={HomeScreen} />
+      <HomeStackNav.Screen name="AlexaGallery" component={AlexaScreen} />
+      <HomeStackNav.Screen name="AlexaImageReveal" component={ChatImageReveal} />
+    </HomeStackNav.Navigator>
+  );
+}
 
 function CreateNavigator() {
   const { colors } = useTheme();
@@ -83,111 +110,87 @@ function ChatNavigator() {
   );
 }
 
-type IoniconsName = keyof typeof Ionicons.glyphMap;
-
-const TAB_CONFIG: Record<string, { active: IoniconsName; inactive: IoniconsName; label: string }> = {
-  Home: { active: 'home', inactive: 'home-outline', label: 'Home' },
-  Create: { active: 'add-circle', inactive: 'add-circle-outline', label: 'Create' },
-  MindMate: { active: 'chatbubble-ellipses', inactive: 'chatbubble-ellipses-outline', label: 'MindMate' },
-  Journal: { active: 'book', inactive: 'book-outline', label: 'Journal' },
-  Profile: { active: 'person', inactive: 'person-outline', label: 'Profile' },
-};
-
 export default function MainTabs() {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
+  const { hasUnread, clearUnread } = useMindMate();
+
+  // Determine MindMate SF Symbol based on focus + unread state
+  const getMindMateIcon = (focused: boolean): string => {
+    if (focused) return 'message.fill';
+    return hasUnread ? 'message.badge' : 'message';
+  };
 
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
+      screenOptions={{
         headerShown: false,
-        tabBarIcon: ({ focused }) => {
-          const config = TAB_CONFIG[route.name];
-          const iconName = focused ? config.active : config.inactive;
-          return (
-            <View style={{ alignItems: 'center' }}>
-              <Ionicons
-                name={iconName}
-                size={22}
-                color={focused ? colors.primary : colors.textTertiary}
-              />
-              {focused && (
-                <Animated.View
-                  entering={FadeIn.duration(200)}
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: 2.5,
-                    backgroundColor: colors.primary,
-                    marginTop: 4,
-                  }}
-                />
-              )}
-            </View>
-          );
-        },
-        tabBarLabel: ({ focused }) => {
-          const config = TAB_CONFIG[route.name];
-          return (
-            <Text
-              style={[
-                styles.tabLabel,
-                { color: focused ? colors.primary : colors.textTertiary },
-              ]}
-            >
-              {config.label}
-            </Text>
-          );
-        },
-        tabBarStyle: [
-          styles.tabBar,
-          {
-            backgroundColor: Platform.OS === 'android' ? colors.tabBar : 'transparent',
-            borderTopColor: colors.tabBarBorder,
-          },
-        ],
-        tabBarBackground: () =>
-          Platform.OS === 'ios' ? (
-            <BlurView
-              intensity={90}
-              tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFill}
-            />
-          ) : null,
-        tabBarItemStyle: styles.tabItem,
-      })}
+        tabBarActiveTintColor: colors.primary,
+      }}
       screenListeners={{
-        tabPress: () => {
+        tabPress: (e) => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          // Clear unread badge when MindMate tab is tapped
+          if (e.target?.startsWith('MindMate')) {
+            clearUnread();
+          }
         },
       }}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Create" component={CreateNavigator} />
-      <Tab.Screen name="MindMate" component={ChatNavigator} />
-      <Tab.Screen name="Journal" component={JournalNavigator} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen
+        name="Home"
+        component={HomeNavigator}
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ focused }) =>
+            Platform.OS === 'ios'
+              ? { type: 'sfSymbol' as const, name: focused ? 'house.fill' : 'house' }
+              : { type: 'materialSymbol' as const, name: 'home' },
+        }}
+      />
+      <Tab.Screen
+        name="Create"
+        component={CreateNavigator}
+        options={{
+          title: 'Reflect',
+          tabBarIcon: ({ focused }) =>
+            Platform.OS === 'ios'
+              ? { type: 'sfSymbol' as const, name: focused ? 'circle.hexagonpath.fill' : 'circle.hexagonpath' }
+              : { type: 'materialSymbol' as const, name: 'add_circle' },
+        }}
+      />
+      <Tab.Screen
+        name="MindMate"
+        component={ChatNavigator}
+        options={{
+          title: 'MindMate',
+          tabBarIcon: ({ focused }) =>
+            Platform.OS === 'ios'
+              ? { type: 'sfSymbol' as const, name: getMindMateIcon(focused) }
+              : { type: 'materialSymbol' as const, name: 'chat' },
+        }}
+      />
+      <Tab.Screen
+        name="Journal"
+        component={JournalNavigator}
+        options={{
+          title: 'Journal',
+          tabBarIcon: ({ focused }) =>
+            Platform.OS === 'ios'
+              ? { type: 'sfSymbol' as const, name: focused ? 'book.fill' : 'book' }
+              : { type: 'materialSymbol' as const, name: 'book' },
+        }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ focused }) =>
+            Platform.OS === 'ios'
+              ? { type: 'sfSymbol' as const, name: focused ? 'person.crop.circle.fill' : 'person.crop.circle' }
+              : { type: 'materialSymbol' as const, name: 'person' },
+        }}
+      />
     </Tab.Navigator>
   );
 }
-
-const styles = StyleSheet.create({
-  tabBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: Platform.OS === 'ios' ? 88 : 68,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    elevation: 0,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 8,
-    paddingTop: 8,
-  },
-  tabItem: {
-    gap: 4,
-  },
-  tabLabel: {
-    fontSize: 10,
-    fontWeight: '500',
-    letterSpacing: 0.2,
-  },
-});

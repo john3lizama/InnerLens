@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/context/AuthContext';
 import { ThemeProvider } from './src/context/ThemeContext';
+import { MindMateProvider } from './src/context/MindMateContext';
 import AppNavigator from './src/navigation/AppNavigator';
 
 export default function App() {
@@ -12,8 +13,10 @@ export default function App() {
       <SafeAreaProvider>
         <ThemeProvider>
           <AuthProvider>
-            <StatusBar style="auto" />
-            <AppNavigator />
+            <MindMateProvider>
+              <StatusBar style="auto" />
+              <AppNavigator />
+            </MindMateProvider>
           </AuthProvider>
         </ThemeProvider>
       </SafeAreaProvider>
