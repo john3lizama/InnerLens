@@ -1,3 +1,12 @@
+/**
+ * TypingIndicator — Refined.
+ *
+ * Changes:
+ * - Slowed bounce animation from 300ms to 400ms (more contemplative)
+ * - Uses surface tokens for mode-aware styling
+ * - Ground surface background instead of raw card color
+ */
+
 import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
@@ -13,8 +22,8 @@ import { spacing, borderRadius } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 
 export default function TypingIndicator() {
-  const { colors } = useTheme();
-  const styles = makeStyles(colors);
+  const { surfaces } = useTheme();
+  const styles = makeStyles(surfaces);
   const dot1 = useSharedValue(0);
   const dot2 = useSharedValue(0);
   const dot3 = useSharedValue(0);
@@ -25,16 +34,16 @@ export default function TypingIndicator() {
         delay,
         withRepeat(
           withSequence(
-            withTiming(-6, { duration: 300, easing: Easing.out(Easing.ease) }),
-            withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) })
+            withTiming(-6, { duration: 400, easing: Easing.out(Easing.ease) }),
+            withTiming(0, { duration: 400, easing: Easing.in(Easing.ease) })
           ),
           -1,
           false
         )
       );
     dot1.value = bounce(0);
-    dot2.value = bounce(150);
-    dot3.value = bounce(300);
+    dot2.value = bounce(200);
+    dot3.value = bounce(400);
   }, [dot1, dot2, dot3]);
 
   const style1 = useAnimatedStyle(() => ({ transform: [{ translateY: dot1.value }] }));
@@ -52,31 +61,26 @@ export default function TypingIndicator() {
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (surfaces: any) => StyleSheet.create({
   container: {
     alignItems: 'flex-start',
     paddingHorizontal: spacing.md,
-    marginBottom: spacing.md,
+    marginBottom: 20,
   },
   bubble: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs + 2,
-    backgroundColor: colors.card,
+    backgroundColor: surfaces.colors.ground,
     borderRadius: borderRadius.xl,
     borderBottomLeftRadius: borderRadius.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    shadowColor: '#2D2B3D',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.textTertiary,
+    backgroundColor: surfaces.text.tertiary,
   },
 });

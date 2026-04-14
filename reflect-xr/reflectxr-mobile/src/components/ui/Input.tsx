@@ -1,3 +1,14 @@
+/**
+ * Input — Refined text input component.
+ *
+ * Changes from previous version:
+ * - Uses 'input' surface role for background color (mode-aware)
+ * - Uses edge tokens for border styling (mode-aware)
+ * - Removed BlurView glow effect on focus (excessive)
+ * - Uses motion tokens for border animation
+ * - Focus border uses inputFocus edge token (30% dark, 40% light)
+ */
+
 import React, { useState, useCallback } from 'react';
 import {
   StyleSheet,
@@ -12,7 +23,8 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
 } from 'react-native-reanimated';
-import { typography, spacing, borderRadius, shadow } from '../../theme';
+import { typography, spacing, borderRadius } from '../../theme';
+import { fade } from '../../theme/motion';
 import { useTheme } from '../../context/ThemeContext';
 
 interface InputProps extends Omit<TextInputProps, 'style'> {
@@ -28,40 +40,65 @@ export default function Input({
   multiline,
   ...textInputProps
 }: InputProps) {
-  const { colors } = useTheme();
-  const styles = makeStyles(colors);
+  const { colors, surfaces } = useTheme();
+  const inputSurface = surfaces.colors.input;
+  const inputEdge = surfaces.edge('input');
+  const focusEdge = surfaces.edge('inputFocus');
+
+  const styles = makeStyles(colors, surfaces);
   const [isFocused, setIsFocused] = useState(false);
   const borderProgress = useSharedValue(0);
 
-  const animatedBorder = useAnimatedStyle(() => ({
-    borderColor: error
-      ? colors.error
-      : borderProgress.value > 0.5
-        ? colors.primary
-        : colors.border,
-    borderWidth: borderProgress.value > 0.5 ? 1.5 : 1,
-  }));
+  const animatedBorder = useAnimatedStyle(() => {
+    if (error) {
+      return {
+        borderColor: colors.error,
+        borderWidth: 1.5,
+      };
+    }
+    return {
+      borderColor: borderProgress.value > 0.5
+        ? focusEdge.borderColor
+        : inputEdge.borderColor,
+      borderWidth: borderProgress.value > 0.5
+        ? focusEdge.borderWidth
+        : inputEdge.borderWidth,
+    };
+  });
 
   const handleFocus = useCallback((e: any) => {
     setIsFocused(true);
-    borderProgress.value = withTiming(1, { duration: 200 });
+    borderProgress.value = withTiming(1, { duration: fade.fast });
     textInputProps.onFocus?.(e);
   }, [borderProgress, textInputProps]);
 
   const handleBlur = useCallback((e: any) => {
     setIsFocused(false);
-    borderProgress.value = withTiming(0, { duration: 200 });
+    borderProgress.value = withTiming(0, { duration: fade.fast });
     textInputProps.onBlur?.(e);
   }, [borderProgress, textInputProps]);
 
   return (
     <View style={[styles.container, containerStyle]}>
       {label && (
-        <Text style={[styles.label, isFocused && styles.labelFocused, error && styles.labelError]}>
+        <Text
+          style={[
+            styles.label,
+            isFocused && styles.labelFocused,
+            error && styles.labelError,
+          ]}
+        >
           {label}
         </Text>
       )}
-      <Animated.View style={[styles.inputWrapper, multiline && styles.multilineWrapper, animatedBorder, isFocused && shadow.glowSubtle]}>
+      <Animated.View
+        style={[
+          styles.inputWrapper,
+          { backgroundColor: inputSurface },
+          multiline && styles.multilineWrapper,
+          animatedBorder,
+        ]}
+      >
         <TextInput
           {...textInputProps}
           multiline={multiline}
@@ -69,7 +106,7 @@ export default function Input({
             styles.input,
             multiline && styles.multilineInput,
           ]}
-          placeholderTextColor={colors.textTertiary}
+          placeholderTextColor={surfaces.text.tertiary}
           onFocus={handleFocus}
           onBlur={handleBlur}
         />
@@ -79,14 +116,14 @@ export default function Input({
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (colors: any, surfaces: any) => StyleSheet.create({
   container: {
     width: '100%',
   },
   label: {
     ...typography.bodySmall,
     fontWeight: '500',
-    color: colors.textSecondary,
+    color: surfaces.text.secondary,
     marginBottom: spacing.sm,
   },
   labelFocused: {
@@ -96,19 +133,14 @@ const makeStyles = (colors: any) => StyleSheet.create({
     color: colors.error,
   },
   inputWrapper: {
-    backgroundColor: colors.card,
     borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.03)',
   },
   multilineWrapper: {
     minHeight: 120,
   },
   input: {
     ...typography.body,
-    color: colors.text,
+    color: surfaces.text.primary,
     paddingHorizontal: 20,
     paddingVertical: 18,
     minHeight: 52,
@@ -122,4 +154,4 @@ const makeStyles = (colors: any) => StyleSheet.create({
     color: colors.error,
     marginTop: spacing.xs,
   },
-})
+});

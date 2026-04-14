@@ -1,3 +1,11 @@
+/**
+ * SafeAreaWrapper — Safe area container with surface-token-aware backgrounds.
+ *
+ * Changes from previous version:
+ * - Uses surface token gradients (hero, ambient) per mode
+ * - Canvas color from surface tokens, not hardcoded colors
+ */
+
 import React from 'react';
 import { StyleSheet, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,7 +25,7 @@ export default function SafeAreaWrapper({
   style,
   edges = ['top'],
 }: SafeAreaWrapperProps) {
-  const { colors } = useTheme();
+  const { surfaces } = useTheme();
 
   const content = (
     <SafeAreaView edges={edges} style={[styles.container, style]}>
@@ -28,7 +36,7 @@ export default function SafeAreaWrapper({
   if (gradient) {
     return (
       <LinearGradient
-        colors={[...colors.gradient.hero]}
+        colors={surfaces.gradient.hero}
         style={styles.gradient}
       >
         {content}
@@ -38,7 +46,7 @@ export default function SafeAreaWrapper({
 
   return (
     <LinearGradient
-      colors={[...colors.gradient.ambient]}
+      colors={surfaces.gradient.ambient}
       style={styles.gradient}
     >
       {content}

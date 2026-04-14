@@ -1,14 +1,25 @@
+/**
+ * ChatInput — Refined.
+ *
+ * Changes:
+ * - Removed BlurView glow effect on focus
+ * - Uses surface tokens for mode-aware styling
+ * - Placeholder: "Say whatever you'd like…"
+ * - Uses motion tokens for press animation and haptics
+ * - Simplified visual treatment — input surface role background
+ */
+
 import React, { useState, useCallback } from 'react';
-import { StyleSheet, View, TextInput, Pressable } from 'react-native';
+import { StyleSheet, View, TextInput, Pressable, Platform } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
-import { typography, spacing, borderRadius, shadow } from '../../theme';
+import { typography, spacing, borderRadius } from '../../theme';
+import { spring as springTokens, haptic } from '../../theme/motion';
 import { useTheme } from '../../context/ThemeContext';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -19,10 +30,9 @@ interface ChatInputProps {
 }
 
 export default function ChatInput({ onSend, disabled = false }: ChatInputProps) {
-  const { colors, isDark } = useTheme();
-  const styles = makeStyles(colors);
+  const { surfaces, isDark } = useTheme();
+  const styles = makeStyles(surfaces);
   const [text, setText] = useState('');
-  const [isFocused, setIsFocused] = useState(false);
   const sendScale = useSharedValue(1);
 
   const sendAnimatedStyle = useAnimatedStyle(() => ({
@@ -32,10 +42,16 @@ export default function ChatInput({ onSend, disabled = false }: ChatInputProps) 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed || disabled) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    sendScale.value = withSpring(0.85, { damping: 10, stiffness: 300 });
+    haptic.light();
+    sendScale.value = withSpring(0.85, {
+      damping: springTokens.press.damping,
+      stiffness: springTokens.press.stiffness,
+    });
     setTimeout(() => {
-      sendScale.value = withSpring(1, { damping: 10, stiffness: 300 });
+      sendScale.value = withSpring(1, {
+        damping: springTokens.press.damping,
+        stiffness: springTokens.press.stiffness,
+      });
     }, 100);
     onSend(trimmed);
     setText('');
@@ -43,59 +59,69 @@ export default function ChatInput({ onSend, disabled = false }: ChatInputProps) 
 
   const canSend = text.trim().length > 0 && !disabled;
 
-  return (
-    <BlurView intensity={80} tint={isDark ? 'dark' : 'light'} style={[styles.container, isFocused && shadow.glowSubtle]}>
-      <View style={styles.inputRow}>
-        <TextInput
-          style={styles.input}
-          value={text}
-          onChangeText={setText}
-          placeholder="Share what's on your mind..."
-          placeholderTextColor={colors.textTertiary}
-          multiline
-          maxLength={1000}
-          editable={!disabled}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
+  const inputBar = (
+    <View style={styles.inputRow}>
+      <TextInput
+        style={styles.input}
+        value={text}
+        onChangeText={setText}
+        placeholder="Say whatever you'd like…"
+        placeholderTextColor={surfaces.text.tertiary}
+        multiline
+        maxLength={1000}
+        editable={!disabled}
+      />
+      <AnimatedPressable
+        onPress={handleSend}
+        disabled={!canSend}
+        style={[styles.sendButton, !canSend && styles.sendDisabled, sendAnimatedStyle]}
+      >
+        <Ionicons
+          name="arrow-up"
+          size={20}
+          color={canSend ? '#FFFFFF' : surfaces.text.tertiary}
         />
-        <AnimatedPressable
-          onPress={handleSend}
-          disabled={!canSend}
-          style={[styles.sendButton, !canSend && styles.sendDisabled, sendAnimatedStyle]}
-        >
-          <Ionicons
-            name="arrow-up"
-            size={20}
-            color={canSend ? colors.textInverse : colors.textTertiary}
-          />
-        </AnimatedPressable>
-      </View>
-    </BlurView>
+      </AnimatedPressable>
+    </View>
+  );
+
+  // iOS: use BlurView for translucent bar; Android: solid background
+  if (Platform.OS === 'ios') {
+    return (
+      <BlurView intensity={80} tint={isDark ? 'dark' : 'light'} style={styles.container}>
+        {inputBar}
+      </BlurView>
+    );
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor: surfaces.colors.canvas }]}>
+      {inputBar}
+    </View>
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (surfaces: any) => StyleSheet.create({
   container: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.borderLight,
+    borderTopColor: surfaces.edge('input').borderColor || 'transparent',
     overflow: 'hidden',
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: colors.card,
+    backgroundColor: surfaces.colors.input,
     borderRadius: borderRadius.xxl,
     paddingLeft: spacing.md,
     paddingRight: spacing.xs,
     paddingVertical: spacing.xs,
-    ...shadow.sm,
   },
   input: {
     flex: 1,
     ...typography.body,
-    color: colors.text,
+    color: surfaces.text.primary,
     maxHeight: 100,
     paddingVertical: spacing.sm,
   },
@@ -103,12 +129,12 @@ const makeStyles = (colors: any) => StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.primary,
+    backgroundColor: '#6C63FF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
   },
   sendDisabled: {
-    backgroundColor: colors.surface,
+    backgroundColor: surfaces.colors.ground,
   },
 });

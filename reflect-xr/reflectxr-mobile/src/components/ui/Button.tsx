@@ -1,9 +1,20 @@
+/**
+ * Button — Refined primary action component.
+ *
+ * Changes from previous version:
+ * - Primary variant: solid color instead of gradient (more restrained, more premium)
+ * - Removed glow shadow from primary variant
+ * - Uses motion tokens instead of hardcoded spring configs
+ * - Uses haptic tokens for consistent feedback
+ */
+
 import React, { useCallback } from 'react';
 import {
   StyleSheet,
   Text,
   Pressable,
   ActivityIndicator,
+  View,
   ViewStyle,
 } from 'react-native';
 import Animated, {
@@ -11,9 +22,9 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
 } from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
-import { typography, spacing, borderRadius, shadow } from '../../theme';
+import { typography, spacing, borderRadius } from '../../theme';
+import { spring as springTokens } from '../../theme/motion';
+import { haptic } from '../../theme/motion';
 import { useTheme } from '../../context/ThemeContext';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -41,8 +52,8 @@ export default function Button({
   fullWidth = false,
   hapticWeight = 'light',
 }: ButtonProps) {
-  const { colors } = useTheme();
-  const styles = makeStyles(colors);
+  const { colors, surfaces } = useTheme();
+  const styles = makeStyles(colors, surfaces);
   const scale = useSharedValue(1);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -50,20 +61,22 @@ export default function Button({
   }));
 
   const handlePressIn = useCallback(() => {
-    scale.value = withSpring(0.97, { damping: 15, stiffness: 300 });
+    scale.value = withSpring(springTokens.press.scale, {
+      damping: springTokens.press.damping,
+      stiffness: springTokens.press.stiffness,
+    });
   }, [scale]);
 
   const handlePressOut = useCallback(() => {
-    scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+    scale.value = withSpring(1, {
+      damping: springTokens.press.damping,
+      stiffness: springTokens.press.stiffness,
+    });
   }, [scale]);
 
   const handlePress = useCallback(() => {
     if (disabled || loading) return;
-    Haptics.impactAsync(
-      hapticWeight === 'medium'
-        ? Haptics.ImpactFeedbackStyle.Medium
-        : Haptics.ImpactFeedbackStyle.Light,
-    );
+    hapticWeight === 'medium' ? haptic.medium() : haptic.light();
     onPress();
   }, [disabled, loading, onPress, hapticWeight]);
 
@@ -73,7 +86,7 @@ export default function Button({
     <>
       {loading ? (
         <ActivityIndicator
-          color={variant === 'primary' ? colors.textInverse : colors.primary}
+          color={variant === 'primary' ? '#FFFFFF' : colors.primary}
           size="small"
         />
       ) : (
@@ -103,33 +116,23 @@ export default function Button({
         style,
       ]}
     >
-      {variant === 'primary' ? (
-        <LinearGradient
-          colors={isDisabled ? [colors.textTertiary, colors.textTertiary] : [...colors.gradient.primary]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.base, styles.primaryBase, fullWidth && styles.fullWidth, !isDisabled && shadow.glowSubtle]}
-        >
-          {content}
-        </LinearGradient>
-      ) : (
-        <Animated.View
-          style={[
-            styles.base,
-            variant === 'secondary' && styles.secondaryBase,
-            variant === 'ghost' && styles.ghostBase,
-            isDisabled && styles.disabledBase,
-            fullWidth && styles.fullWidth,
-          ]}
-        >
-          {content}
-        </Animated.View>
-      )}
+      <View
+        style={[
+          styles.base,
+          variant === 'primary' && styles.primaryBase,
+          variant === 'secondary' && styles.secondaryBase,
+          variant === 'ghost' && styles.ghostBase,
+          isDisabled && styles.disabledBase,
+          fullWidth && styles.fullWidth,
+        ]}
+      >
+        {content}
+      </View>
     </AnimatedPressable>
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (colors: any, surfaces: any) => StyleSheet.create({
   base: {
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
@@ -142,10 +145,10 @@ const makeStyles = (colors: any) => StyleSheet.create({
     width: '100%',
   },
   primaryBase: {
-    // gradient handles background
+    backgroundColor: colors.primary,
   },
   secondaryBase: {
-    backgroundColor: colors.card,
+    backgroundColor: surfaces.colors.ground,
     borderWidth: 1.5,
     borderColor: colors.primary,
   },
@@ -159,7 +162,7 @@ const makeStyles = (colors: any) => StyleSheet.create({
     ...typography.button,
   },
   textPrimary: {
-    color: colors.textInverse,
+    color: '#FFFFFF',
   },
   textSecondary: {
     color: colors.primary,

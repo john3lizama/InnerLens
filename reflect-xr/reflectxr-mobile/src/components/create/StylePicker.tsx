@@ -1,17 +1,18 @@
-import React from 'react';
-import { StyleSheet, Text, View, ScrollView, Pressable } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  FadeIn,
-} from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
-import { typography, spacing, borderRadius, shadow } from '../../theme';
-import { useTheme } from '../../context/ThemeContext';
+/**
+ * StylePicker — Redesigned with Chip primitive.
+ *
+ * Changes:
+ * - Uses Chip component instead of custom StyleChip
+ * - Removed gradient selected state and glow shadow
+ * - Selected state now uses primary border + subtle tint (via Chip)
+ * - Cleaner, more restrained visual treatment
+ */
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+import React from 'react';
+import { StyleSheet, Text, View, ScrollView } from 'react-native';
+import Chip from '../ui/Chip';
+import { typography, spacing } from '../../theme';
+import { useTheme } from '../../context/ThemeContext';
 
 interface StyleOption {
   id: string;
@@ -26,66 +27,14 @@ interface StylePickerProps {
   onSelect: (id: string, name: string) => void;
 }
 
-function StyleChip({
-  style,
-  isSelected,
-  onSelect,
-}: {
-  style: StyleOption;
-  isSelected: boolean;
-  onSelect: (id: string, name: string) => void;
-}) {
-  const { colors } = useTheme();
-  const chipStyles = makeStyles(colors);
-  const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePress = () => {
-    Haptics.selectionAsync();
-    scale.value = withSpring(1.05, { damping: 12, stiffness: 200 });
-    setTimeout(() => {
-      scale.value = withSpring(1, { damping: 12, stiffness: 200 });
-    }, 150);
-    onSelect(style.id, style.name);
-  };
-
-  if (isSelected) {
-    return (
-      <AnimatedPressable onPress={handlePress} style={animatedStyle}>
-        <LinearGradient
-          colors={[...colors.gradient.primary]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[chipStyles.chip, shadow.glowSubtle]}
-        >
-          <Text style={[chipStyles.chipText, chipStyles.chipTextSelected]}>
-            {style.name}
-          </Text>
-        </LinearGradient>
-      </AnimatedPressable>
-    );
-  }
-
-  return (
-    <AnimatedPressable onPress={handlePress} style={animatedStyle}>
-      <View style={[chipStyles.chip, chipStyles.chipUnselected]}>
-        <Text style={chipStyles.chipText}>{style.name}</Text>
-      </View>
-    </AnimatedPressable>
-  );
-}
-
 export default function StylePicker({
   styles_list,
   categories,
   selectedId,
   onSelect,
 }: StylePickerProps) {
-  const { colors } = useTheme();
-  const pickerStyles = makeStyles(colors);
+  const { surfaces } = useTheme();
+  const styles = makeStyles(surfaces);
 
   return (
     <View>
@@ -93,19 +42,19 @@ export default function StylePicker({
         const catStyles = styles_list.filter((s) => s.category === cat.key);
         if (catStyles.length === 0) return null;
         return (
-          <View key={cat.key} style={pickerStyles.section}>
-            <Text style={pickerStyles.sectionLabel}>{cat.label}</Text>
+          <View key={cat.key} style={styles.section}>
+            <Text style={styles.sectionLabel}>{cat.label}</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={pickerStyles.chipRow}
+              contentContainerStyle={styles.chipRow}
             >
-              {catStyles.map((style) => (
-                <StyleChip
-                  key={style.id}
-                  style={style}
-                  isSelected={selectedId === style.id}
-                  onSelect={onSelect}
+              {catStyles.map((item) => (
+                <Chip
+                  key={item.id}
+                  label={item.name}
+                  selected={selectedId === item.id}
+                  onPress={() => onSelect(item.id, item.name)}
                 />
               ))}
             </ScrollView>
@@ -116,13 +65,13 @@ export default function StylePicker({
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (surfaces: any) => StyleSheet.create({
   section: {
     marginBottom: spacing.md,
   },
   sectionLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: surfaces.text.tertiary,
     textTransform: 'uppercase',
     marginBottom: spacing.sm,
     marginLeft: spacing.xs,
@@ -131,26 +80,5 @@ const makeStyles = (colors: any) => StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     paddingRight: spacing.md,
-  },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: 'transparent',
-  },
-  chipUnselected: {
-    backgroundColor: colors.surface,
-    opacity: 0.7,
-  },
-  chipText: {
-    ...typography.bodySmall,
-    fontWeight: '500',
-    color: colors.textSecondary,
-  },
-  chipTextSelected: {
-    color: colors.textInverse,
-    fontWeight: '600',
   },
 });
