@@ -1,5 +1,32 @@
 import api from './api';
 
+/**
+ * Return the device's current IANA timezone (e.g. "America/Los_Angeles").
+ *
+ * Uses Hermes' Intl implementation, which reads the OS timezone on both iOS
+ * and Android in Expo SDK 55. Resolved per call (not cached at module load)
+ * so if the user travels mid-session, the next request picks up the new zone.
+ *
+ * A dev-only warning fires if detection fails so we notice instead of
+ * silently bucketing everyone into UTC.
+ *
+ * Note: we previously tried expo-localization for an OS-direct read, but it
+ * ships a native module that requires a dev-client rebuild to link. If we
+ * ever rebuild the client, it's worth layering back in — the Intl path
+ * stays as the fallback.
+ */
+function getDeviceTz(): string {
+  try {
+    const fromIntl = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (fromIntl) return fromIntl;
+  } catch {}
+
+  if (__DEV__) {
+    console.warn('[tz] could not detect device timezone, falling back to UTC');
+  }
+  return 'UTC';
+}
+
 export const getJournals = async (limit = 20, offset = 0) => {
   const res = await api.get('/journal', { params: { limit, offset } });
   return res.data;
@@ -16,7 +43,7 @@ export const getJournalById = async (id: string) => {
  * (reflections, chat sessions, or voice interactions).
  */
 export const getActivityDates = async (year: number): Promise<string[]> => {
-  const res = await api.get('/activity/dates', { params: { year } });
+  const res = await api.get('/activity/dates', { params: { year, tz: getDeviceTz() } });
   return res.data.dates;
 };
 
@@ -46,7 +73,7 @@ export interface StreakData {
 }
 
 export const getStreak = async (): Promise<StreakData> => {
-  const res = await api.get('/activity/streak');
+  const res = await api.get('/activity/streak', { params: { tz: getDeviceTz() } });
   return res.data;
 };
 
