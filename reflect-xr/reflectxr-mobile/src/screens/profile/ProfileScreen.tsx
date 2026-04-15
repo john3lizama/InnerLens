@@ -88,11 +88,21 @@ function ProfileRow({
   );
 }
 
-// ── Email change step type ──────────────────────────────────────────────
-type EmailStep = 'enter-email' | 'enter-code';
+// ── Edit modal step type ────────────────────────────────────────────────
+// 'profile'    = unified name + email + remove-photo surface with single Save
+// 'enter-code' = 4-digit email verification, launched after Save if email changed
+type ModalStep = 'profile' | 'enter-code';
 
 export default function ProfileScreen() {
-  const { user, logout, uploadProfileImage, requestEmailChange, verifyEmailChange } = useAuth();
+  const {
+    user,
+    logout,
+    uploadProfileImage,
+    deleteProfileImage,
+    updateUser,
+    requestEmailChange,
+    verifyEmailChange,
+  } = useAuth();
   const { surfaces } = useTheme();
   const styles = makeStyles(surfaces);
 
@@ -102,12 +112,20 @@ export default function ProfileScreen() {
   const [streakData, setStreakData] = useState<StreakData | null>(null);
   const [streakModalVisible, setStreakModalVisible] = useState(false);
 
-  // Email change modal state
-  const [emailModalVisible, setEmailModalVisible] = useState(false);
-  const [emailStep, setEmailStep] = useState<EmailStep>('enter-email');
-  const [newEmail, setNewEmail] = useState('');
+  // Edit Profile modal state (unified: name + email + remove photo)
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [modalStep, setModalStep] = useState<ModalStep>('profile');
+  const [editedName, setEditedName] = useState('');
+  const [editedEmail, setEditedEmail] = useState('');
+  const [nameError, setNameError] = useState('');
   const [emailError, setEmailError] = useState('');
-  const [isEmailLoading, setIsEmailLoading] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isRemovingPhoto, setIsRemovingPhoto] = useState(false);
+  // Pending email stays in state so the enter-code step can re-submit verification
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
+  // Staged photo URI picked inside the sheet — committed on Save, not immediately
+  const [pendingPhotoUri, setPendingPhotoUri] = useState<string | null>(null);
 
   // 4-digit code input
   const [codeDigits, setCodeDigits] = useState(['', '', '', '']);
@@ -172,54 +190,147 @@ export default function ProfileScreen() {
     }
   }, [uploadProfileImage]);
 
-  // ── Email change flow ─────────────────────────────────────────────────
-  const openEmailModal = () => {
+  // ── Unified Edit Profile flow ─────────────────────────────────────────
+  const openEditModal = () => {
     haptic.selection();
-    setNewEmail('');
+    setModalStep('profile');
+    setEditedName(user?.display_name || '');
+    setEditedEmail(user?.email || '');
+    setNameError('');
     setEmailError('');
-    setEmailStep('enter-email');
+    setPendingEmail('');
+    setPendingPhotoUri(null);
     setCodeDigits(['', '', '', '']);
-    setEmailModalVisible(true);
+    setEditModalVisible(true);
   };
 
-  const closeEmailModal = () => {
-    setEmailModalVisible(false);
+  const closeEditModal = () => {
+    setEditModalVisible(false);
+    setNameError('');
     setEmailError('');
+    setPendingPhotoUri(null);
   };
 
-  // Step 1: Send code
-  const handleSendCode = async () => {
-    const trimmed = newEmail.trim().toLowerCase();
-    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+  // Pick a photo from within the sheet — STAGE the URI; commit happens on Save.
+  // This mirrors name/email edits: nothing leaves the device until Save is tapped.
+  const handlePickPhotoInModal = useCallback(async () => {
+    haptic.selection();
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permission Needed',
+        'Please allow access to your photo library to set a profile picture.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: openAppSettings },
+        ]
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets?.[0]) return;
+    setPendingPhotoUri(result.assets[0].uri);
+  }, []);
+
+  // Single Save — commits name if changed, then launches code popup if email changed
+  const handleSaveProfile = async () => {
+    const trimmedName = editedName.trim();
+    const trimmedEmail = editedEmail.trim().toLowerCase();
+
+    const nameChanged = !!trimmedName && trimmedName !== user?.display_name;
+    const emailChanged = !!trimmedEmail && trimmedEmail !== user?.email;
+    const photoChanged = !!pendingPhotoUri;
+
+    if (!nameChanged && !emailChanged && !photoChanged) {
+      closeEditModal();
+      return;
+    }
+    if (!trimmedName) {
+      setNameError('Name cannot be empty.');
+      return;
+    }
+    if (emailChanged && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       setEmailError('Please enter a valid email address.');
       return;
     }
-    if (trimmed === user?.email) {
-      setEmailError('This is already your current email.');
-      return;
-    }
 
-    setIsEmailLoading(true);
+    setIsSavingProfile(true);
+    setNameError('');
     setEmailError('');
-    try {
-      const result = await requestEmailChange(trimmed);
-      haptic.medium();
-      setNewEmail(trimmed);
-      setEmailStep('enter-code');
 
-      // In dev mode, auto-fill the code if SES isn't configured
-      if (result.dev_code) {
-        const digits = result.dev_code.split('');
-        setCodeDigits(digits);
-      } else {
-        setCodeDigits(['', '', '', '']);
-        setTimeout(() => codeRefs.current[0]?.focus(), 200);
+    try {
+      if (photoChanged && pendingPhotoUri) {
+        await uploadProfileImage(pendingPhotoUri);
+        setPendingPhotoUri(null);
       }
+
+      if (nameChanged) {
+        await updateUser({ display_name: trimmedName });
+      }
+
+      if (emailChanged) {
+        const result = await requestEmailChange(trimmedEmail);
+        setPendingEmail(trimmedEmail);
+        setModalStep('enter-code');
+
+        // In dev mode (no SES configured), auto-fill the code
+        if (result.dev_code) {
+          setCodeDigits(result.dev_code.split(''));
+        } else {
+          setCodeDigits(['', '', '', '']);
+          setTimeout(() => codeRefs.current[0]?.focus(), 200);
+        }
+      } else {
+        closeEditModal();
+      }
+
+      haptic.medium();
     } catch (err: any) {
-      setEmailError(err?.response?.data?.detail || 'Could not send code. Please try again.');
+      const detail = err?.response?.data?.detail || 'Could not save. Please try again.';
+      // Attribute the error to whichever field triggered the server call
+      if (emailChanged) {
+        setEmailError(detail);
+      } else {
+        setNameError(detail);
+      }
     } finally {
-      setIsEmailLoading(false);
+      setIsSavingProfile(false);
     }
+  };
+
+  // Remove profile photo (confirm → delete → stay on profile step)
+  const handleRemovePhoto = () => {
+    haptic.selection();
+    Alert.alert(
+      'Remove Profile Photo',
+      'Your photo will be removed. You can always upload a new one.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            setIsRemovingPhoto(true);
+            try {
+              await deleteProfileImage();
+              haptic.medium();
+            } catch {
+              Alert.alert('Remove Failed', 'Could not remove your photo. Please try again.');
+            } finally {
+              setIsRemovingPhoto(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   // Handle code digit input
@@ -268,18 +379,18 @@ export default function ProfileScreen() {
       return;
     }
 
-    setIsEmailLoading(true);
+    setIsVerifyingCode(true);
     setEmailError('');
     try {
-      await verifyEmailChange(newEmail, code);
+      await verifyEmailChange(pendingEmail, code);
       haptic.medium();
-      closeEmailModal();
+      closeEditModal();
     } catch (err: any) {
       setEmailError(err?.response?.data?.detail || 'Verification failed. Please try again.');
       setCodeDigits(['', '', '', '']);
       setTimeout(() => codeRefs.current[0]?.focus(), 100);
     } finally {
-      setIsEmailLoading(false);
+      setIsVerifyingCode(false);
     }
   };
 
@@ -293,9 +404,8 @@ export default function ProfileScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Title — user's name + streak badge */}
+        {/* Top row — streak badge only (name moves under the avatar) */}
         <View style={styles.titleRow}>
-          <Text style={styles.title}>{displayName}</Text>
           {streakData && (
             <StreakBadge
               streak={streakData.current_streak}
@@ -307,8 +417,8 @@ export default function ProfileScreen() {
         {/* Avatar + Email + Stats */}
         <Animated.View entering={FadeInUp.duration(enterConfig.content.duration)}>
           <View style={styles.avatarSection}>
-            {/* Tappable Avatar */}
-            <Pressable onPress={handleAvatarPress} style={styles.avatarWrapper}>
+            {/* Tappable Avatar — single tap uploads; entire circle + badge are one target */}
+            <Pressable onPress={handleAvatarPress} hitSlop={8} style={styles.avatarWrapper}>
               <View style={styles.avatar}>
                 {isUploadingImage ? (
                   <ActivityIndicator size="small" color="#6C63FF" />
@@ -329,15 +439,21 @@ export default function ProfileScreen() {
               </View>
             </Pressable>
 
-            {/* Tappable Email */}
-            <Pressable onPress={openEmailModal} style={styles.emailRow}>
-              <Text style={styles.email}>{user?.email || ''}</Text>
+            {/* Tappable Name — opens unified Edit Profile modal */}
+            <Pressable onPress={openEditModal} hitSlop={8} style={styles.nameRow}>
+              <Text style={styles.nameText}>{displayName}</Text>
               <Ionicons
-                name="pencil"
-                size={13}
+                name="create-outline"
+                size={18}
                 color={surfaces.text.tertiary}
-                style={styles.emailEditIcon}
+                style={styles.nameEditIcon}
               />
+            </Pressable>
+
+            {/* Tappable Email — opens unified Edit Profile modal (no icon; the one
+                edit affordance lives next to the name) */}
+            <Pressable onPress={openEditModal} hitSlop={8} style={styles.emailRow}>
+              <Text style={styles.email}>{user?.email || ''}</Text>
             </Pressable>
 
             <Text style={styles.stats}>
@@ -387,32 +503,71 @@ export default function ProfileScreen() {
         </Animated.View>
       </ScrollView>
 
-      {/* ── Email Change Modal (two-step) ─────────────────────────────── */}
+      {/* ── Unified Edit Profile Sheet (profile → code) ──────────────── */}
       <Modal
-        visible={emailModalVisible}
+        visible={editModalVisible}
         transparent
-        animationType="fade"
-        onRequestClose={closeEmailModal}
+        animationType="slide"
+        onRequestClose={closeEditModal}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalOverlay}
+          style={styles.sheetOverlay}
         >
-          <Pressable style={styles.modalOverlay} onPress={closeEmailModal}>
-            <Pressable
-              style={[styles.modalCard, { backgroundColor: surfaces.colors.raised }]}
-              onPress={() => {}}
-            >
-              {emailStep === 'enter-email' ? (
-                /* ── Step 1: Enter new email ─────────────────────────── */
+          <Pressable style={styles.sheetBackdrop} onPress={closeEditModal} />
+          <Pressable
+            style={[styles.sheetCard, { backgroundColor: surfaces.colors.raised }]}
+            onPress={() => {}}
+          >
+            {/* Drag handle */}
+            <View style={[styles.sheetHandle, { backgroundColor: surfaces.text.tertiary }]} />
+              {modalStep === 'profile' ? (
+                /* ── Unified profile edit: Name + Email inputs + single Save ── */
                 <>
                   <Text style={[styles.modalTitle, { color: surfaces.text.primary }]}>
-                    Change Email
-                  </Text>
-                  <Text style={[styles.modalSubtitle, { color: surfaces.text.secondary }]}>
-                    We'll send a verification code to your new email
+                    Edit Profile
                   </Text>
 
+                  {/* Name field */}
+                  <Text style={[styles.fieldLabel, { color: surfaces.text.tertiary }]}>
+                    Name
+                  </Text>
+                  <View
+                    style={[
+                      styles.modalInput,
+                      {
+                        backgroundColor: surfaces.colors.input,
+                        borderColor: nameError
+                          ? '#D94848'
+                          : surfaces.edge('input').borderColor || 'transparent',
+                      },
+                    ]}
+                  >
+                    <TextInput
+                      value={editedName}
+                      onChangeText={(t) => {
+                        setEditedName(t);
+                        if (nameError) setNameError('');
+                      }}
+                      placeholder="Your name"
+                      placeholderTextColor={surfaces.text.tertiary}
+                      autoCapitalize="words"
+                      autoCorrect={false}
+                      returnKeyType="next"
+                      style={[styles.modalInputText, { color: surfaces.text.primary }]}
+                    />
+                  </View>
+                  {nameError ? <Text style={styles.modalError}>{nameError}</Text> : null}
+
+                  {/* Email field — live input; Save triggers code popup if changed */}
+                  <Text
+                    style={[
+                      styles.fieldLabel,
+                      { color: surfaces.text.tertiary, marginTop: spacing.lg },
+                    ]}
+                  >
+                    Email
+                  </Text>
                   <View
                     style={[
                       styles.modalInput,
@@ -425,42 +580,91 @@ export default function ProfileScreen() {
                     ]}
                   >
                     <TextInput
-                      value={newEmail}
+                      value={editedEmail}
                       onChangeText={(t) => {
-                        setNewEmail(t);
+                        setEditedEmail(t);
                         if (emailError) setEmailError('');
                       }}
-                      placeholder="new@email.com"
+                      onSubmitEditing={handleSaveProfile}
+                      placeholder="you@email.com"
                       placeholderTextColor={surfaces.text.tertiary}
                       keyboardType="email-address"
                       autoCapitalize="none"
                       autoCorrect={false}
-                      autoFocus
+                      returnKeyType="done"
                       style={[styles.modalInputText, { color: surfaces.text.primary }]}
                     />
                   </View>
+                  {emailError ? <Text style={styles.modalError}>{emailError}</Text> : null}
 
-                  {emailError ? (
-                    <Text style={styles.modalError}>{emailError}</Text>
-                  ) : null}
+                  {/* Photo action — remove (if photo exists) or upload (if not) */}
+                  {hasProfileImage ? (
+                    <Pressable
+                      onPress={handleRemovePhoto}
+                      disabled={isRemovingPhoto}
+                      style={styles.removePhotoRow}
+                    >
+                      {isRemovingPhoto ? (
+                        <ActivityIndicator size="small" color="#D94848" />
+                      ) : (
+                        <>
+                          <Ionicons name="trash-outline" size={16} color="#D94848" />
+                          <Text style={styles.removePhotoText}>Remove profile photo</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      onPress={handlePickPhotoInModal}
+                      style={styles.uploadPhotoRow}
+                    >
+                      {pendingPhotoUri ? (
+                        <>
+                          <Image
+                            source={{ uri: pendingPhotoUri }}
+                            style={styles.uploadPhotoPreview}
+                          />
+                          <Text style={styles.uploadPhotoText}>
+                            Photo selected · Tap to change
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <Ionicons name="camera-outline" size={16} color="#6C63FF" />
+                          <Text style={styles.uploadPhotoText}>Upload profile photo</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  )}
 
                   <View style={styles.modalActions}>
-                    <Pressable onPress={closeEmailModal} style={styles.modalCancelBtn}>
+                    <Pressable onPress={closeEditModal} style={styles.modalCancelBtn}>
                       <Text style={[styles.modalCancelText, { color: surfaces.text.secondary }]}>
                         Cancel
                       </Text>
                     </Pressable>
-                    <Pressable
-                      onPress={handleSendCode}
-                      disabled={isEmailLoading}
-                      style={[styles.modalSaveBtn, isEmailLoading && { opacity: 0.6 }]}
-                    >
-                      {isEmailLoading ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <Text style={styles.modalSaveText}>Send Code</Text>
-                      )}
-                    </Pressable>
+                    {(() => {
+                      const trimmedName = editedName.trim();
+                      const trimmedEmail = editedEmail.trim().toLowerCase();
+                      const nothingChanged =
+                        (trimmedName === (user?.display_name || '') || !trimmedName) &&
+                        trimmedEmail === (user?.email || '').toLowerCase() &&
+                        !pendingPhotoUri;
+                      const disabled = isSavingProfile || nothingChanged;
+                      return (
+                        <Pressable
+                          onPress={handleSaveProfile}
+                          disabled={disabled}
+                          style={[styles.modalSaveBtn, disabled && { opacity: 0.5 }]}
+                        >
+                          {isSavingProfile ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <Text style={styles.modalSaveText}>Save</Text>
+                          )}
+                        </Pressable>
+                      );
+                    })()}
                   </View>
                 </>
               ) : (
@@ -472,7 +676,7 @@ export default function ProfileScreen() {
                   <Text style={[styles.modalSubtitle, { color: surfaces.text.secondary }]}>
                     We sent a 4-digit code to{'\n'}
                     <Text style={{ color: surfaces.text.primary, fontWeight: '500' as const }}>
-                      {newEmail}
+                      {pendingEmail}
                     </Text>
                   </Text>
 
@@ -509,35 +713,36 @@ export default function ProfileScreen() {
                     <Text style={styles.modalError}>{emailError}</Text>
                   ) : null}
 
-                  {/* Resend link */}
+                  {/* Resend — re-issues the code for the same pendingEmail, then
+                      goes back to the profile step so the user can correct a typo */}
                   <Pressable
                     onPress={() => {
-                      setEmailStep('enter-email');
                       setEmailError('');
                       setCodeDigits(['', '', '', '']);
+                      setModalStep('profile');
                     }}
                     style={styles.resendBtn}
                   >
                     <Text style={[styles.resendText, { color: surfaces.text.tertiary }]}>
-                      Didn't receive it? <Text style={{ color: '#6C63FF' }}>Resend</Text>
+                      Wrong email? <Text style={{ color: '#6C63FF' }}>Edit</Text>
                     </Text>
                   </Pressable>
 
                   <View style={styles.modalActions}>
-                    <Pressable onPress={closeEmailModal} style={styles.modalCancelBtn}>
+                    <Pressable onPress={closeEditModal} style={styles.modalCancelBtn}>
                       <Text style={[styles.modalCancelText, { color: surfaces.text.secondary }]}>
                         Cancel
                       </Text>
                     </Pressable>
                     <Pressable
                       onPress={handleVerifyCode}
-                      disabled={isEmailLoading || codeDigits.join('').length !== 4}
+                      disabled={isVerifyingCode || codeDigits.join('').length !== 4}
                       style={[
                         styles.modalSaveBtn,
-                        (isEmailLoading || codeDigits.join('').length !== 4) && { opacity: 0.6 },
+                        (isVerifyingCode || codeDigits.join('').length !== 4) && { opacity: 0.6 },
                       ]}
                     >
-                      {isEmailLoading ? (
+                      {isVerifyingCode ? (
                         <ActivityIndicator size="small" color="#FFFFFF" />
                       ) : (
                         <Text style={styles.modalSaveText}>Verify</Text>
@@ -546,7 +751,6 @@ export default function ProfileScreen() {
                   </View>
                 </>
               )}
-            </Pressable>
           </Pressable>
         </KeyboardAvoidingView>
       </Modal>
@@ -567,25 +771,39 @@ const makeStyles = (surfaces: any) =>
     },
     content: {
       paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
+      paddingTop: spacing.xs,
       paddingBottom: 120,
     },
     titleRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: spacing.lg,
+      justifyContent: 'flex-end',
+      marginBottom: 0,
     },
     title: {
       ...typography.h2,
       color: surfaces.text.primary,
     },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 0,
+      marginBottom: spacing.xs,
+    },
+    nameText: {
+      ...typography.h2,
+      color: surfaces.text.primary,
+    },
+    nameEditIcon: {
+      marginLeft: 8,
+      opacity: 0.7,
+    },
     avatarSection: {
       alignItems: 'center',
-      marginBottom: spacing.xl,
+      marginBottom: spacing.lg,
     },
     avatarWrapper: {
-      marginBottom: spacing.md,
+      marginBottom: spacing.sm,
     },
     avatar: {
       width: 80,
@@ -626,9 +844,6 @@ const makeStyles = (surfaces: any) =>
       ...typography.bodySmall,
       color: surfaces.text.secondary,
     },
-    emailEditIcon: {
-      marginLeft: 6,
-    },
     stats: {
       ...typography.caption,
       color: surfaces.text.tertiary,
@@ -657,23 +872,34 @@ const makeStyles = (surfaces: any) =>
       fontWeight: '500' as const,
       color: surfaces.text.tertiary,
     },
-    // ── Modal styles ────────────────────────────────────────────────────
-    modalOverlay: {
+    // ── Sheet styles ───────────────────────────────────────────────────
+    sheetOverlay: {
       flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'flex-end',
     },
-    modalCard: {
-      width: '85%',
-      borderRadius: borderRadius.xl,
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.lg + spacing.sm,
-      paddingBottom: spacing.lg,
+    sheetBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.55)',
+    },
+    sheetCard: {
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.sm,
+      paddingBottom: Platform.OS === 'ios' ? spacing.xl + spacing.lg : spacing.xl,
+    },
+    sheetHandle: {
+      alignSelf: 'center',
+      width: 40,
+      height: 5,
+      borderRadius: 3,
+      opacity: 0.35,
+      marginTop: spacing.sm,
+      marginBottom: spacing.lg,
     },
     modalTitle: {
-      ...typography.h3,
-      marginBottom: spacing.xs,
+      ...typography.h2,
+      marginBottom: spacing.xl,
     },
     modalSubtitle: {
       ...typography.bodySmall,
@@ -682,10 +908,11 @@ const makeStyles = (surfaces: any) =>
     },
     modalInput: {
       borderWidth: 1,
-      borderRadius: borderRadius.md,
+      borderRadius: borderRadius.lg,
       paddingHorizontal: spacing.md,
-      paddingVertical: Platform.OS === 'ios' ? 14 : 10,
+      paddingVertical: Platform.OS === 'ios' ? 18 : 14,
       marginBottom: spacing.xs,
+      marginTop: spacing.xs,
     },
     modalInputText: {
       ...typography.body,
@@ -698,9 +925,9 @@ const makeStyles = (surfaces: any) =>
     },
     modalActions: {
       flexDirection: 'row',
-      justifyContent: 'flex-end',
+      justifyContent: 'center',
       alignItems: 'center',
-      marginTop: spacing.lg,
+      marginTop: spacing.xl,
       gap: spacing.md,
     },
     modalCancelBtn: {
@@ -713,16 +940,55 @@ const makeStyles = (surfaces: any) =>
     },
     modalSaveBtn: {
       backgroundColor: '#6C63FF',
-      borderRadius: borderRadius.md,
-      paddingVertical: spacing.sm + 2,
-      paddingHorizontal: spacing.lg,
-      minWidth: 100,
+      borderRadius: borderRadius.lg,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.xl,
+      minWidth: 120,
       alignItems: 'center',
     },
     modalSaveText: {
       ...typography.body,
       fontWeight: '600' as const,
       color: '#FFFFFF',
+    },
+    // ── Unified edit-profile styles ─────────────────────────────────────
+    fieldLabel: {
+      ...typography.caption,
+      fontWeight: '500' as const,
+      textTransform: 'uppercase' as const,
+      letterSpacing: 0.5,
+      marginBottom: spacing.sm,
+    },
+    removePhotoRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      marginTop: spacing.lg,
+      paddingVertical: spacing.sm,
+    },
+    removePhotoText: {
+      ...typography.bodySmall,
+      fontWeight: '500' as const,
+      color: '#D94848',
+    },
+    uploadPhotoRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      marginTop: spacing.lg,
+      paddingVertical: spacing.sm,
+    },
+    uploadPhotoText: {
+      ...typography.bodySmall,
+      fontWeight: '500' as const,
+      color: '#6C63FF',
+    },
+    uploadPhotoPreview: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
     },
     // ── Code input styles ───────────────────────────────────────────────
     codeRow: {
