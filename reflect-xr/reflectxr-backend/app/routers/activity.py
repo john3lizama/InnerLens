@@ -3,13 +3,26 @@ activity.py router — User activity tracking for the profile grid.
 
 Single endpoint that returns all dates in a given year where the user
 had at least one journal entry or chat session (in-app, Alexa, or HomePod).
+
+All date arithmetic is done in the caller's timezone (passed as ?tz=…).
+Without this, a late-night entry in UTC-behind timezones would jump to the
+next day on the grid, and the streak badge would disagree with what the
+user actually sees on the calendar.
 """
 
-from datetime import date, timedelta
+import re
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, union, func, cast, Date, extract
+from sqlalchemy import select, union, func, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
+
+try:
+    # Python 3.9+: stdlib IANA zone database (Docker image typically has tzdata)
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    ZoneInfo = None  # type: ignore
+
 from app.db.database import get_db
 from app.models.journal_entry import JournalEntry
 from app.models.session import Session
@@ -22,9 +35,47 @@ from app.services.auth_service import get_current_user
 router = APIRouter()
 
 
+# ── Timezone helpers ─────────────────────────────────────────────────────
+# Whitelist validator: only accept strings that look like IANA TZ ids
+# ("America/Los_Angeles", "UTC", "Etc/GMT+7"). Defense-in-depth even though
+# SQLAlchemy binds tz as a parameter — we don't want weird strings in logs
+# either.
+_TZ_RE = re.compile(r"^[A-Za-z_]+(?:/[A-Za-z_+\-0-9]+){0,2}$")
+
+
+def _valid_tz(tz: str | None) -> str:
+    """Return tz if it looks like a valid IANA id; fall back to UTC."""
+    if tz and len(tz) <= 64 and _TZ_RE.match(tz):
+        return tz
+    return "UTC"
+
+
+def _local_date(col, tz: str):
+    """
+    Postgres expression for the user-local date of a naive-UTC timestamp.
+
+    `created_at` is TIMESTAMP WITHOUT TIME ZONE written by server_default=now()
+    in UTC. We first attach 'UTC' to make it TIMESTAMP WITH TIME ZONE, then
+    shift to the user's tz (which drops the tz and returns wall-clock time
+    there), then cast to Date.
+    """
+    return cast(func.timezone(tz, func.timezone("UTC", col)), Date)
+
+
+def _today_in_tz(tz: str) -> date:
+    """Today in the user's timezone — falls back to UTC if zoneinfo is absent."""
+    if ZoneInfo is None:
+        return date.today()
+    try:
+        return datetime.now(ZoneInfo(tz)).date()
+    except Exception:
+        return date.today()
+
+
 @router.get("/dates", response_model=ActivityDatesResponse)
 async def get_activity_dates(
     year: int = Query(..., ge=2020, le=2100, description="Year to fetch activity for"),
+    tz: str | None = Query(None, description="IANA timezone id (e.g. 'America/Los_Angeles')"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -35,35 +86,36 @@ async def get_activity_dates(
     - Saved at least one journal reflection, OR
     - Had at least one chat session (in-app MindMate, Alexa, or HomePod)
 
-    Returns a sorted list of date strings in YYYY-MM-DD format.
+    Returns a sorted list of date strings in YYYY-MM-DD format, computed in
+    the caller's timezone.
     """
-    # Distinct dates from journal entries
+    user_tz = _valid_tz(tz)
+    j_local = _local_date(JournalEntry.created_at, user_tz)
+    s_local = _local_date(Session.created_at, user_tz)
+
     journal_dates = (
-        select(cast(JournalEntry.created_at, Date).label("active_date"))
+        select(j_local.label("active_date"))
         .where(
             JournalEntry.user_id == current_user.id,
-            extract("year", JournalEntry.created_at) == year,
+            func.extract("year", j_local) == year,
         )
     )
 
-    # Distinct dates from chat sessions (source != 'create')
     session_dates = (
-        select(cast(Session.created_at, Date).label("active_date"))
+        select(s_local.label("active_date"))
         .where(
             Session.user_id == current_user.id,
             Session.source != "create",
-            extract("year", Session.created_at) == year,
+            func.extract("year", s_local) == year,
         )
     )
 
-    # Union both, get distinct, sort
     combined = union(journal_dates, session_dates).subquery()
     result = await db.execute(
         select(combined.c.active_date).distinct().order_by(combined.c.active_date)
     )
 
     dates = [row[0].isoformat() for row in result.all()]
-
     return ActivityDatesResponse(dates=dates)
 
 
@@ -78,7 +130,6 @@ async def get_activity_stats(
     - reflections: total journal entries
     - conversations: total chat sessions (MindMate in-app, Alexa, HomePod)
     """
-    # Count journal entries
     reflection_result = await db.execute(
         select(func.count(JournalEntry.id)).where(
             JournalEntry.user_id == current_user.id
@@ -86,7 +137,6 @@ async def get_activity_stats(
     )
     reflections = reflection_result.scalar() or 0
 
-    # Count chat sessions (source != 'create')
     conversation_result = await db.execute(
         select(func.count(Session.id)).where(
             Session.user_id == current_user.id,
@@ -100,22 +150,27 @@ async def get_activity_stats(
 
 @router.get("/streak", response_model=StreakResponse)
 async def get_streak(
+    tz: str | None = Query(None, description="IANA timezone id"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """
     Return the user's current streak, longest streak, and last 5 days.
 
-    A streak is consecutive days with at least one journal entry or chat session.
-    Uses the same data source as /activity/dates to stay in sync with the grid.
+    A streak is consecutive days (in the user's timezone) with at least one
+    journal entry or chat session. Uses the same data source and tz logic as
+    /activity/dates so the badge stays in sync with the grid.
     """
-    # ── Fetch ALL active dates (no year filter) ─────────────────────────
+    user_tz = _valid_tz(tz)
+    j_local = _local_date(JournalEntry.created_at, user_tz)
+    s_local = _local_date(Session.created_at, user_tz)
+
     journal_dates = (
-        select(cast(JournalEntry.created_at, Date).label("active_date"))
+        select(j_local.label("active_date"))
         .where(JournalEntry.user_id == current_user.id)
     )
     session_dates = (
-        select(cast(Session.created_at, Date).label("active_date"))
+        select(s_local.label("active_date"))
         .where(
             Session.user_id == current_user.id,
             Session.source != "create",
@@ -128,12 +183,11 @@ async def get_streak(
     active_dates_list = [row[0] for row in result.all()]
     active_dates_set = set(active_dates_list)
 
-    today = date.today()
+    today = _today_in_tz(user_tz)
 
     # ── Current streak ──────────────────────────────────────────────────
     current_streak = 0
     if today in active_dates_set:
-        # Count consecutive days backward from today
         d = today
         while d in active_dates_set:
             current_streak += 1
@@ -163,7 +217,7 @@ async def get_streak(
         d = today - timedelta(days=i)
         recent_days.append(RecentDay(
             date=d.isoformat(),
-            day_letter=d.strftime("%A")[0],  # "M", "T", "W", etc.
+            day_letter=d.strftime("%A")[0],
             active=d in active_dates_set,
         ))
 
