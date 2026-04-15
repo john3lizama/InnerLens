@@ -84,7 +84,7 @@ export default function StreakModal({ visible, onClose, streakData }: StreakModa
                 <Ionicons
                   name={day.active ? 'checkmark-circle' : 'ellipse-outline'}
                   size={28}
-                  color={day.active ? colors.secondary : surfaces.text.tertiary}
+                  color={day.active ? colors.secondary : surfaces.text.secondary}
                 />
               </View>
             ))}
