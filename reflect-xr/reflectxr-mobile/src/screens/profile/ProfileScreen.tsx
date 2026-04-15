@@ -27,6 +27,7 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useNavigation } from '@react-navigation/native';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import Surface from '../../components/ui/Surface';
 import ActivityGrid from '../../components/profile/ActivityGrid';
@@ -94,6 +95,7 @@ function ProfileRow({
 type ModalStep = 'profile' | 'enter-code';
 
 export default function ProfileScreen() {
+  const navigation = useNavigation() as any;
   const {
     user,
     logout,
@@ -483,6 +485,7 @@ export default function ProfileScreen() {
             <ProfileRow
               icon="shield-checkmark-outline"
               label="Privacy"
+              onPress={() => navigation.navigate('Privacy')}
               surfaces={surfaces}
             />
             <View style={styles.divider} />

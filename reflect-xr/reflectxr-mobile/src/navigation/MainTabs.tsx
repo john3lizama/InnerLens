@@ -21,6 +21,7 @@ import type {
   CreateStackParamList,
   JournalStackParamList,
   ChatStackParamList,
+  ProfileStackParamList,
 } from './types';
 
 import HomeScreen from '../screens/home/HomeScreen';
@@ -35,6 +36,7 @@ import ChatImageReveal from '../screens/chat/ChatImageReveal';
 import JournalListScreen from '../screens/journal/JournalListScreen';
 import JournalDetailScreen from '../screens/journal/JournalDetailScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
+import PrivacyScreen from '../screens/profile/PrivacyScreen';
 import AlexaScreen from '../screens/alexa/AlexaScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -42,6 +44,7 @@ const HomeStackNav = createNativeStackNavigator<HomeStackParamList>();
 const CreateStackNav = createNativeStackNavigator<CreateStackParamList>();
 const JournalStackNav = createNativeStackNavigator<JournalStackParamList>();
 const ChatStackNav = createNativeStackNavigator<ChatStackParamList>();
+const ProfileStackNav = createNativeStackNavigator<ProfileStackParamList>();
 
 function HomeNavigator() {
   const { colors } = useTheme();
@@ -109,6 +112,22 @@ function ChatNavigator() {
       <ChatStackNav.Screen name="ChatHistory" component={ChatHistoryScreen} />
       <ChatStackNav.Screen name="ChatImageReveal" component={ChatImageReveal} />
     </ChatStackNav.Navigator>
+  );
+}
+
+function ProfileNavigator() {
+  const { colors } = useTheme();
+  return (
+    <ProfileStackNav.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: 'slide_from_right',
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <ProfileStackNav.Screen name="ProfileMain" component={ProfileScreen} />
+      <ProfileStackNav.Screen name="Privacy" component={PrivacyScreen} />
+    </ProfileStackNav.Navigator>
   );
 }
 
@@ -184,7 +203,7 @@ export default function MainTabs() {
       />
       <Tab.Screen
         name="Profile"
-        component={ProfileScreen}
+        component={ProfileNavigator}
         options={{
           title: 'Profile',
           tabBarIcon: ({ focused }) =>

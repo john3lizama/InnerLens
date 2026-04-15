@@ -70,3 +70,11 @@ export const getSession = async (id: string): Promise<ChatSessionDetail> => {
 export const deleteSession = async (id: string): Promise<void> => {
   await api.delete(`/chat/sessions/${id}`);
 };
+
+/**
+ * Delete ALL of the current user's MindMate chat sessions. Concept→Generate
+ * sessions are untouched.
+ */
+export const deleteAllSessions = async (): Promise<void> => {
+  await api.delete('/chat/sessions');
+};

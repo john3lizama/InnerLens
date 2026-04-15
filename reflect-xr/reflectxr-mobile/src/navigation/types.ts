@@ -43,3 +43,8 @@ export type HomeStackParamList = {
   AlexaGallery: undefined;
   AlexaImageReveal: { imageUrl: string };
 };
+
+export type ProfileStackParamList = {
+  ProfileMain: undefined;
+  Privacy: undefined;
+};
