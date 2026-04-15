@@ -42,3 +42,23 @@ async def upload_image(file_bytes: bytes, key: str, content_type: str = "image/p
         ContentType=content_type,
     )
     return f"{settings.S3_PUBLIC_URL}/{key}"
+
+
+async def delete_image(key: str) -> None:
+    """
+    Delete an image from S3 by key. Best-effort — missing keys are not an error
+    (S3's delete_object is idempotent: it returns 204 even if the key doesn't exist).
+    """
+    s3_client.delete_object(Bucket=settings.S3_BUCKET_NAME, Key=key)
+
+
+def key_from_public_url(url: str) -> str | None:
+    """
+    Reverse `f"{S3_PUBLIC_URL}/{key}"` — returns the S3 key if `url` was issued
+    by this service, else None. Used to locate the object to delete when all we
+    have stored is the public URL.
+    """
+    prefix = f"{settings.S3_PUBLIC_URL}/"
+    if url and url.startswith(prefix):
+        return url[len(prefix):]
+    return None

@@ -34,7 +34,7 @@ from app.services.auth_service import (
 from app.models.user import User
 from app.models.pending_registration import PendingRegistration
 from app.models.email_verification import EmailVerification
-from app.utils.storage import upload_image
+from app.utils.storage import upload_image, delete_image, key_from_public_url
 from app.services.email_service import send_verification_code
 import uuid as uuid_mod
 
@@ -455,5 +455,43 @@ async def upload_profile_image(
     current_user.profile_image_url = image_url
     await db.commit()
     await db.refresh(current_user)
+
+    return current_user
+
+
+@router.delete("/me/profile-image", response_model=UserResponse)
+async def delete_profile_image(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Remove the user's profile picture. Clears `profile_image_url` on the user
+    and best-effort deletes the S3 object if the URL points at our bucket.
+
+    Idempotent: calling this with no photo set is a no-op and still returns
+    the user (200), matching DELETE semantics the mobile client expects.
+    """
+    old_url = current_user.profile_image_url
+
+    # Clear the DB reference first so the user is "photo-less" even if the
+    # S3 delete races or fails — we'd rather orphan a blob than keep a
+    # dangling URL that 404s in the UI.
+    current_user.profile_image_url = None
+    await db.commit()
+    await db.refresh(current_user)
+
+    if old_url:
+        key = key_from_public_url(old_url)
+        if key:
+            try:
+                await delete_image(key)
+            except Exception:
+                # Best-effort: log via print for now. The user-facing action
+                # already succeeded (DB cleared), so don't surface S3 errors.
+                # A sweeper job can clean orphaned keys later.
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Failed to delete profile image from S3 (key=%s)", key, exc_info=True
+                )
 
     return current_user
