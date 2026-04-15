@@ -27,6 +27,7 @@ import PressableSurface from '../../components/ui/PressableSurface';
 import Surface from '../../components/ui/Surface';
 import StreakBadge from '../../components/profile/StreakBadge';
 import StreakModal from '../../components/profile/StreakModal';
+import MoodGraphCard from '../../components/home/MoodGraphCard';
 import { typography, spacing, borderRadius } from '../../theme';
 import { enterConfig } from '../../theme/motion';
 import { haptic } from '../../theme/motion';
@@ -210,6 +211,12 @@ export default function HomeScreen() {
             </PressableSurface>
           ) : null}
         </Animated.View>
+
+        {/* ══════════════════════════════════════════════════════
+            MOOD GRAPH — 14-day trend from chats + journals
+            Renders locked/example for new users; real data at 3+ entries.
+            ══════════════════════════════════════════════════════ */}
+        <MoodGraphCard />
 
         {/* ══════════════════════════════════════════════════════
             ZONE 3: Discovery — quiet, secondary

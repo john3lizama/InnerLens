@@ -15,7 +15,7 @@ import api from './api';
  * ever rebuild the client, it's worth layering back in — the Intl path
  * stays as the fallback.
  */
-function getDeviceTz(): string {
+export function getDeviceTz(): string {
   try {
     const fromIntl = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (fromIntl) return fromIntl;
