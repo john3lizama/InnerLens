@@ -22,6 +22,7 @@ interface AuthContextType extends AuthState {
   logout: () => Promise<void>;
   updateUser: (data: { preferred_style?: string; display_name?: string }) => Promise<void>;
   uploadProfileImage: (imageUri: string) => Promise<void>;
+  deleteProfileImage: () => Promise<void>;
   requestEmailChange: (newEmail: string) => Promise<{ message: string; dev_code?: string }>;
   verifyEmailChange: (newEmail: string, code: string) => Promise<void>;
 }
@@ -38,6 +39,7 @@ export const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
   updateUser: async () => {},
   uploadProfileImage: async () => {},
+  deleteProfileImage: async () => {},
   requestEmailChange: async () => ({ message: '' }),
   verifyEmailChange: async () => {},
 });
@@ -130,6 +132,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, user: updated }));
   }, []);
 
+  const deleteProfileImage = useCallback(async () => {
+    const updated = await authService.deleteProfileImage();
+    setState((s) => ({ ...s, user: updated }));
+  }, []);
+
   const requestEmailChange = useCallback(async (newEmail: string) => {
     const result = await authService.requestEmailChange(newEmail);
     return result;
@@ -151,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         updateUser,
         uploadProfileImage,
+        deleteProfileImage,
         requestEmailChange,
         verifyEmailChange,
       }}

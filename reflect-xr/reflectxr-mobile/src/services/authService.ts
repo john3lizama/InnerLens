@@ -90,3 +90,11 @@ export const uploadProfileImage = async (imageUri: string) => {
   });
   return res.data;
 };
+
+/**
+ * Remove the current profile picture.
+ */
+export const deleteProfileImage = async () => {
+  const res = await api.delete('/auth/me/profile-image');
+  return res.data;
+};
