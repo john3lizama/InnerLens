@@ -3,11 +3,24 @@ import { Message } from '../types/chat';
 import * as chatService from '../services/chatService';
 import { useMindMate } from '../context/MindMateContext';
 
-export function useChat() {
+export interface InitialChat {
+  id: string;
+  messages: Message[];
+}
+
+/**
+ * Hook that powers the MindMate chat UI.
+ *
+ * Pass `initial` to rehydrate a previously saved session — e.g. when the
+ * user taps a row in ChatHistoryScreen. If omitted, the hook starts a
+ * fresh conversation (new session_id is assigned by the backend on the
+ * first POST /chat).
+ */
+export function useChat(initial?: InitialChat) {
   const { markUnread } = useMindMate();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(initial?.messages ?? []);
   const [isTyping, setIsTyping] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(initial?.id ?? null);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [showCrisisAlert, setShowCrisisAlert] = useState(false);
 

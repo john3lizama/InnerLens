@@ -9,7 +9,7 @@
  * - Reduced header visual weight
  */
 
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useEffect, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -20,8 +20,9 @@ import {
   Text,
   Dimensions,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
@@ -32,15 +33,76 @@ import CrisisAlert from '../../components/chat/CrisisAlert';
 import TypingIndicator from '../../components/chat/TypingIndicator';
 import { typography, spacing, borderRadius } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
-import { useChat } from '../../hooks/useChat';
+import { useChat, InitialChat } from '../../hooks/useChat';
 import { Message } from '../../types/chat';
+import * as chatService from '../../services/chatService';
 
 const IMAGE_PREFIX = '__IMAGE__';
 
 export default function ChatScreen() {
+  const route = useRoute() as any;
+  const loadSessionId: string | undefined = route.params?.loadSessionId;
+
+  // When we land here with `?loadSessionId=...`, fetch that session before
+  // mounting the chat UI so useChat seeds itself with the saved messages.
+  // Until the fetch resolves, we intentionally don't render the inner
+  // component at all — otherwise the user would see an empty screen briefly.
+  const [initial, setInitial] = useState<InitialChat | null | undefined>(
+    loadSessionId ? undefined : null
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!loadSessionId) {
+      setInitial(null);
+      return;
+    }
+    setInitial(undefined);
+    (async () => {
+      try {
+        const detail = await chatService.getSession(loadSessionId);
+        if (cancelled) return;
+        setInitial({
+          id: detail.id,
+          messages: detail.messages.map((m) => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            emotion_tags: m.emotion_tags ?? undefined,
+            created_at: m.created_at,
+          })),
+        });
+      } catch (err) {
+        console.error('Failed to load chat session:', err);
+        if (!cancelled) setInitial({ id: loadSessionId, messages: [] });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadSessionId]);
+
+  if (initial === undefined) {
+    // Loading saved session — render a blank container so the gradient
+    // transition stays visually stable.
+    return <View style={{ flex: 1 }} />;
+  }
+
+  // Force a fresh hook state when the user switches between sessions — the
+  // key change unmounts/remounts the inner component so useChat re-seeds.
+  return (
+    <ChatScreenInner
+      key={initial?.id ?? 'new'}
+      initial={initial ?? undefined}
+    />
+  );
+}
+
+function ChatScreenInner({ initial }: { initial?: InitialChat }) {
   const navigation = useNavigation() as any;
   const { surfaces } = useTheme();
-  const { messages, isTyping, sendMessage, showCrisisAlert, dismissCrisisAlert } = useChat();
+  const { messages, isTyping, sendMessage, showCrisisAlert, dismissCrisisAlert } =
+    useChat(initial);
   const flatListRef = useRef<FlatList>(null);
   const insets = useSafeAreaInsets();
   const styles = makeStyles(surfaces);
@@ -130,10 +192,25 @@ export default function ChatScreen() {
             style={styles.headerIcon}
             contentFit="contain"
           />
-          <View>
+          <View style={styles.headerTextWrap}>
             <Text style={styles.headerTitle}>MindMate</Text>
             <Text style={styles.headerSubtitle}>Here when you need</Text>
           </View>
+          <Pressable
+            onPress={() => navigation.navigate('ChatHistory')}
+            hitSlop={12}
+            style={({ pressed }) => [
+              styles.historyBtn,
+              pressed && { opacity: 0.5 },
+            ]}
+            accessibilityLabel="Conversation history"
+          >
+            <Ionicons
+              name="time-outline"
+              size={22}
+              color={surfaces.text.secondary}
+            />
+          </Pressable>
         </View>
 
         {/* Messages */}
@@ -178,6 +255,13 @@ const makeStyles = (surfaces: any) => StyleSheet.create({
     height: 48,
     borderRadius: 14,
     marginRight: spacing.md,
+  },
+  headerTextWrap: {
+    flex: 1,
+  },
+  historyBtn: {
+    padding: spacing.xs,
+    marginLeft: spacing.sm,
   },
   headerTitle: {
     ...typography.h3,

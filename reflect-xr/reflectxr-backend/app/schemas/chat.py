@@ -8,6 +8,7 @@ The chat flow:
 4. Frontend calls POST /chat/generate-from-conversation to get art
 """
 
+from datetime import datetime
 from pydantic import BaseModel
 from uuid import UUID
 from app.schemas.generate import GeneratedImageResponse
@@ -52,3 +53,31 @@ class ChatGenerateResponse(BaseModel):
     emotion_summary: list[EmotionTag]
 
     model_config = {"from_attributes": True}
+
+
+# ── Session history schemas (GET /chat/sessions, /chat/sessions/{id}) ────
+
+class ChatSessionSummary(BaseModel):
+    """One row of the MindMate history list."""
+    id: UUID
+    created_at: datetime
+    preview: str            # first ~80 chars of the first user message, "" if none
+    message_count: int
+    journal_count: int      # journal entries linked to this session
+    has_image: bool         # did this chat produce at least one artwork?
+
+
+class ChatMessage(BaseModel):
+    """A single persisted message in a chat session."""
+    id: UUID
+    role: str               # "user" or "assistant"
+    content: str
+    emotion_tags: list[EmotionTag] | None = None
+    created_at: datetime
+
+
+class ChatSessionDetail(BaseModel):
+    """Full message history of a single chat session."""
+    id: UUID
+    created_at: datetime
+    messages: list[ChatMessage]

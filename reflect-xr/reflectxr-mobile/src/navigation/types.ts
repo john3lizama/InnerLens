@@ -33,7 +33,8 @@ export type JournalStackParamList = {
 };
 
 export type ChatStackParamList = {
-  Chat: undefined;
+  Chat: { loadSessionId?: string } | undefined;
+  ChatHistory: undefined;
   ChatImageReveal: { imageUrl: string };
 };
 

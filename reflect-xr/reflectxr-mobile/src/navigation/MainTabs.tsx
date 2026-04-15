@@ -30,6 +30,7 @@ import PromptEditScreen from '../screens/create/PromptEditScreen';
 import ResponseScreen from '../screens/create/ResponseScreen';
 import ReflectScreen from '../screens/create/ReflectScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
+import ChatHistoryScreen from '../screens/chat/ChatHistoryScreen';
 import ChatImageReveal from '../screens/chat/ChatImageReveal';
 import JournalListScreen from '../screens/journal/JournalListScreen';
 import JournalDetailScreen from '../screens/journal/JournalDetailScreen';
@@ -105,6 +106,7 @@ function ChatNavigator() {
       }}
     >
       <ChatStackNav.Screen name="Chat" component={ChatScreen} />
+      <ChatStackNav.Screen name="ChatHistory" component={ChatHistoryScreen} />
       <ChatStackNav.Screen name="ChatImageReveal" component={ChatImageReveal} />
     </ChatStackNav.Navigator>
   );
