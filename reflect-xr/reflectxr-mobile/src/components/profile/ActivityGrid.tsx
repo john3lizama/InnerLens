@@ -105,10 +105,15 @@ function YearPage({
             style={[
               styles.cell,
               {
-                backgroundColor: day.isFuture
-                  ? cellColors.future
-                  : day.active
-                    ? cellColors.active
+                // Active wins over "future": the backend's active_dates are
+                // cast to Date in UTC while the grid builds cells in local
+                // time, so an active day can land on what local time calls
+                // "tomorrow". Paint it active regardless — otherwise the
+                // numerator ("2 of 365") disagrees with the filled cells.
+                backgroundColor: day.active
+                  ? cellColors.active
+                  : day.isFuture
+                    ? cellColors.future
                     : cellColors.inactive,
               },
             ]}
