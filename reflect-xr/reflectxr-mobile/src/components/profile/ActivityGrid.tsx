@@ -10,6 +10,7 @@
  */
 
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   StyleSheet,
   Text,
@@ -162,7 +163,18 @@ export default function ActivityGrid() {
     }
   }, [loadedYears]);
 
-  // Load current year on mount
+  // Invalidate current year cache on screen focus so new activity shows
+  useFocusEffect(
+    useCallback(() => {
+      setLoadedYears((prev) => {
+        const next = new Set(prev);
+        next.delete(currentYear);
+        return next;
+      });
+    }, [currentYear])
+  );
+
+  // Load current year on mount (and after cache invalidation)
   useEffect(() => {
     loadYear(currentYear);
   }, [currentYear]);

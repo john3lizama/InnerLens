@@ -27,7 +27,7 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import Surface from '../../components/ui/Surface';
 import ActivityGrid from '../../components/profile/ActivityGrid';
@@ -133,19 +133,21 @@ export default function ProfileScreen() {
   const [codeDigits, setCodeDigits] = useState(['', '', '', '']);
   const codeRefs = useRef<(TextInput | null)[]>([]);
 
-  React.useEffect(() => {
-    journalService
-      .getActivityStats()
-      .then((stats) => {
-        setReflectionCount(stats.reflections);
-        setConversationCount(stats.conversations);
-      })
-      .catch(() => {});
-    journalService
-      .getStreak()
-      .then(setStreakData)
-      .catch(() => {});
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      journalService
+        .getActivityStats()
+        .then((stats) => {
+          setReflectionCount(stats.reflections);
+          setConversationCount(stats.conversations);
+        })
+        .catch(() => {});
+      journalService
+        .getStreak()
+        .then(setStreakData)
+        .catch(() => {});
+    }, [])
+  );
 
   const handleLogout = () => {
     haptic.light();
