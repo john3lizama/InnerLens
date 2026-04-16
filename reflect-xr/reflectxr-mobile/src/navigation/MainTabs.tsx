@@ -137,8 +137,8 @@ export default function MainTabs() {
 
   // Determine MindMate SF Symbol based on focus + unread state
   const getMindMateIcon = (focused: boolean): string => {
-    if (focused) return 'message.fill';
-    return hasUnread ? 'message.badge' : 'message';
+    if (focused) return 'bubbles.and.sparkles.fill';
+    return 'bubbles.and.sparkles';
   };
 
   return (
@@ -180,17 +180,6 @@ export default function MainTabs() {
         }}
       />
       <Tab.Screen
-        name="MindMate"
-        component={ChatNavigator}
-        options={{
-          title: 'MindMate',
-          tabBarIcon: ({ focused }) =>
-            Platform.OS === 'ios'
-              ? { type: 'sfSymbol' as const, name: getMindMateIcon(focused) }
-              : { type: 'materialSymbol' as const, name: 'chat' },
-        }}
-      />
-      <Tab.Screen
         name="Journal"
         component={JournalNavigator}
         options={{
@@ -199,6 +188,17 @@ export default function MainTabs() {
             Platform.OS === 'ios'
               ? { type: 'sfSymbol' as const, name: focused ? 'book.fill' : 'book' }
               : { type: 'materialSymbol' as const, name: 'book' },
+        }}
+      />
+      <Tab.Screen
+        name="MindMate"
+        component={ChatNavigator}
+        options={{
+          title: 'MindMate',
+          tabBarIcon: ({ focused }) =>
+            Platform.OS === 'ios'
+              ? { type: 'sfSymbol' as const, name: getMindMateIcon(focused) }
+              : { type: 'materialSymbol' as const, name: 'chat' },
         }}
       />
       <Tab.Screen
