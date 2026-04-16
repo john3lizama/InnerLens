@@ -12,6 +12,7 @@
 
 import React, { useState, useCallback } from 'react';
 import {
+  Dimensions,
   StyleSheet,
   Text,
   View,
@@ -22,6 +23,7 @@ import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import PressableSurface from '../../components/ui/PressableSurface';
 import Surface from '../../components/ui/Surface';
@@ -39,6 +41,14 @@ import { formatRelativeDate } from '../../utils/formatDate';
 import * as journalService from '../../services/journalService';
 import type { StreakData } from '../../services/journalService';
 
+// ── Two-column geometry (matches ImageGrid.tsx) ───────────────────────
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const ROW_GAP = 12;
+const AVAILABLE = SCREEN_WIDTH - spacing.lg * 2 - ROW_GAP;
+// Asymmetric split: hero tile gets more room so the headline breathes.
+const HERO_WIDTH = AVAILABLE * 0.54;
+const CONT_WIDTH = AVAILABLE * 0.46;
+
 interface JournalEntry {
   id: string;
   content: string;
@@ -49,7 +59,7 @@ interface JournalEntry {
 }
 
 export default function HomeScreen() {
-  const { surfaces, colors } = useTheme();
+  const { surfaces, colors, isDark } = useTheme();
   const styles = makeStyles(surfaces, colors);
   const navigation = useNavigation() as any;
   const { user } = useAuth();
@@ -89,6 +99,10 @@ export default function HomeScreen() {
   const hasReflections = !journalsLoading && recentJournals.length > 0;
   const todaysConcept = concepts[2] || concepts[0];
   const previewConcepts = concepts.slice(0, 3);
+  // Show the two-card row when a continuation card (reflection or
+  // concept) will fill the right column. When neither exists, the hero
+  // CTA renders full-width by itself.
+  const showRow = hasReflections || !!todaysConcept;
 
   return (
     <SafeAreaWrapper gradient>
@@ -115,37 +129,70 @@ export default function HomeScreen() {
           </View>
         </Animated.View>
 
-        {/* Hero CTA — the primary invitation */}
-        <Animated.View entering={FadeInUp.duration(enterConfig.content.duration).delay(60)}>
+        {/* ══════════════════════════════════════════════════════
+            Hero CTA — full-width
+            ══════════════════════════════════════════════════════ */}
+        <Animated.View
+          entering={FadeInUp.duration(enterConfig.content.duration).delay(60)}
+        >
           <PressableSurface
-            role="elevated"
+            role="raised"
             onPress={() => navigation.navigate('Create')}
             hapticType="medium"
-            radius="xl"
-            style={styles.heroCard}
+            radius="xxxl"
+            style={[styles.heroCard, styles.heroSurface,
+              { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(108,99,255,0.08)' },
+              { backgroundColor: isDark ? '#262040' : '#F4F0FC' },
+              { marginBottom: spacing.md }]}
           >
-            <View style={styles.heroContent}>
-              <Text style={styles.heroTitle}>
-                Turn what you're feeling{'\n'}into something you can see.
-              </Text>
-              <View style={styles.heroButton}>
-                <Text style={styles.heroButtonText}>Create</Text>
-                <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
-              </View>
-            </View>
-            <View style={styles.heroIconWrap}>
-              <Ionicons name="sparkles" size={28} color="rgba(108,99,255,0.4)" />
+            {/* Gradient background — sculpted: lighter top-left, deeper lower-right */}
+            <LinearGradient
+              colors={isDark ? ['#262040', '#1C1A32', '#101024'] : ['#F4F0FC', '#EEEAF6', '#FAFAF8']}
+              locations={[0, 0.5, 1]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFillObject}
+            />
+            {/* Faint top-edge rim light */}
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 20,
+                right: 20,
+                height: StyleSheet.hairlineWidth,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(108,99,255,0.08)',
+              }}
+            />
+            {/* Ambient sparkle — ghosted, bleeds off the edge */}
+            <Ionicons
+              name="sparkles"
+              size={90}
+              color={isDark ? 'rgba(139,126,200,0.15)' : 'rgba(108,99,255,0.12)'}
+              style={styles.heroAmbient}
+            />
+            <Text style={styles.heroTitle}>
+              Turn what you feel into something you can see.
+            </Text>
+            <View style={{ height: spacing.md }} />
+            <View style={styles.heroButton}>
+              <LinearGradient
+                colors={['#736BA8', '#625CB8']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <Text style={styles.heroButtonText}>Reflect</Text>
+              <Ionicons name="arrow-forward" size={10} color="rgba(255,255,255,0.55)" />
             </View>
           </PressableSurface>
         </Animated.View>
 
         {/* ══════════════════════════════════════════════════════
-            ZONE 2: Continuation
-            One item: recent reflection OR today's concept
+            Last reflection — horizontal card (same style as MindMate)
             ══════════════════════════════════════════════════════ */}
-        <Animated.View entering={FadeInUp.duration(enterConfig.content.duration).delay(120)}>
-          {hasReflections && recentJournals[0] ? (
-            // Most recent reflection — image-forward
+        {hasReflections && recentJournals[0] && (
+          <Animated.View entering={FadeInUp.duration(enterConfig.content.duration).delay(90)}>
             <PressableSurface
               role="ground"
               onPress={() => {
@@ -156,61 +203,29 @@ export default function HomeScreen() {
                   initial: false,
                 });
               }}
-              radius="xl"
-              style={styles.continuationCard}
-            >
-              {recentJournals[0].image && (
-                <Image
-                  source={{ uri: recentJournals[0].image.image_url }}
-                  style={styles.continuationImage}
-                  contentFit="cover"
-                  transition={200}
-                />
-              )}
-              <View style={styles.continuationMeta}>
-                <Text style={styles.continuationLabel}>Your last reflection</Text>
-                <Text style={styles.continuationDate}>
-                  {formatRelativeDate(recentJournals[0].created_at)}
-                </Text>
-                <Text style={styles.continuationPreview} numberOfLines={1}>
-                  {recentJournals[0].content}
-                </Text>
-              </View>
-            </PressableSurface>
-          ) : todaysConcept ? (
-            // Today's concept — for new or returning users with no journals
-            <PressableSurface
-              role="ground"
-              onPress={() => {
-                haptic.selection();
-                navigation.navigate('Create', {
-                  screen: 'PromptDesign',
-                  params: { concept: todaysConcept },
-                });
-              }}
               padded
               radius="xl"
-              style={styles.continuationCard}
+              style={styles.discoveryCard}
             >
-              <Text style={styles.continuationLabel}>A starting point</Text>
-              <View style={styles.conceptRow}>
-                <View style={styles.conceptIcon}>
-                  <Ionicons
-                    name={(conceptIcons[todaysConcept.slug] || 'color-palette-outline') as any}
-                    size={20}
-                    color={colors.accent}
+              <View style={styles.discoveryRow}>
+                {recentJournals[0].image && (
+                  <Image
+                    source={{ uri: recentJournals[0].image.thumbnail_url || recentJournals[0].image.image_url }}
+                    style={styles.reflectionThumb}
+                    contentFit="cover"
+                    transition={200}
                   />
-                </View>
-                <View style={styles.conceptContent}>
-                  <Text style={styles.conceptTitle}>{todaysConcept.title}</Text>
-                  <Text style={styles.conceptDesc} numberOfLines={1}>
-                    {todaysConcept.reflection_prompt}
+                )}
+                <View style={styles.discoveryContent}>
+                  <Text style={styles.discoveryTitle}>Last reflection</Text>
+                  <Text style={styles.discoverySubtitle}>
+                    {formatRelativeDate(recentJournals[0].created_at)}
                   </Text>
                 </View>
               </View>
             </PressableSurface>
-          ) : null}
-        </Animated.View>
+          </Animated.View>
+        )}
 
         {/* ══════════════════════════════════════════════════════
             MOOD GRAPH — 14-day trend from chats + journals
@@ -318,58 +333,69 @@ const makeStyles = (surfaces: any, colors: any) => StyleSheet.create({
     color: surfaces.text.primary,
   },
 
-  // Hero CTA
-  heroCard: {
-    padding: spacing.lg,
+  // Card row (hero CTA + continuation side-by-side)
+  cardRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    gap: ROW_GAP,
     marginBottom: spacing.lg,
+    alignItems: 'flex-start',
   },
-  heroContent: {
-    flex: 1,
+
+  // Hero CTA — premium surface with gradient background
+  heroCard: {
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
+    flexDirection: 'column',
+  },
+  heroSurface: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    overflow: 'hidden',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 6,
+  },
+  heroAmbient: {
+    position: 'absolute',
+    top: '30%',
+    right: -14,
   },
   heroTitle: {
-    ...typography.h3,
+    ...typography.body,
+    fontWeight: '600',
     color: surfaces.text.primary,
-    lineHeight: 24,
-    marginBottom: spacing.md,
   },
   heroButton: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: '#6C63FF',
     borderRadius: borderRadius.full,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm + 2,
-    gap: spacing.xs,
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 2,
   },
   heroButtonText: {
-    ...typography.button,
+    ...typography.caption,
+    fontWeight: '600',
     color: '#FFFFFF',
-    fontSize: 14,
-  },
-  heroIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: surfaces.overlay.primaryTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: spacing.md,
   },
 
-  // Continuation zone
+  // Continuation zone (right column in the card row)
   continuationCard: {
-    marginBottom: spacing.md,
     overflow: 'hidden',
+  },
+  continuationCardPadded: {
+    padding: spacing.md,
   },
   continuationImage: {
     width: '100%',
-    height: 140,
+    height: 110,
   },
   continuationMeta: {
-    padding: spacing.lg,
+    padding: spacing.sm + 2,
   },
   continuationLabel: {
     ...typography.caption,
@@ -378,26 +404,25 @@ const makeStyles = (surfaces: any, colors: any) => StyleSheet.create({
   },
   continuationDate: {
     ...typography.caption,
+    fontSize: 10,
     color: surfaces.text.tertiary,
-    marginBottom: spacing.xs,
   },
   continuationPreview: {
     ...typography.bodySmall,
     color: surfaces.text.secondary,
   },
   conceptRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'column',
     marginTop: spacing.sm,
   },
   conceptIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: `${colors.accent}12`,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.md,
+    marginBottom: spacing.sm,
   },
   conceptContent: {
     flex: 1,
@@ -421,6 +446,13 @@ const makeStyles = (surfaces: any, colors: any) => StyleSheet.create({
     alignItems: 'center',
   },
   discoveryIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+    marginRight: spacing.md,
+  },
+  reflectionThumb: {
     width: 40,
     height: 40,
     borderRadius: borderRadius.md,

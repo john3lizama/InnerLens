@@ -25,7 +25,7 @@ export type SurfaceRole =
 export const surfaceColors: Record<SurfaceRole, { dark: string; light: string }> = {
   canvas:   { dark: '#0E0E14', light: '#F7F6F3' },
   sunken:   { dark: '#0A0A10', light: '#EEEDEA' },
-  ground:   { dark: '#161620', light: '#FFFFFF' },
+  ground:   { dark: '#1C1C28', light: '#FFFFFF' },
   elevated: { dark: '#1E1E28', light: '#FFFFFF' },
   raised:   { dark: '#262632', light: '#FFFFFF' },
   input:    { dark: '#12121A', light: '#F2F1EE' },
@@ -36,7 +36,7 @@ export const surfaceColors: Record<SurfaceRole, { dark: string; light: string }>
 // EDGE TREATMENTS — per surface role, per mode
 // ═══════════════════════════════════════════════════════════════════
 
-export type EdgeRole = 'none' | 'elevated' | 'raised' | 'input' | 'inputFocus' | 'selected';
+export type EdgeRole = 'none' | 'ground' | 'elevated' | 'raised' | 'input' | 'inputFocus' | 'selected';
 
 interface EdgeStyle {
   borderWidth: number;
@@ -44,6 +44,10 @@ interface EdgeStyle {
 }
 
 export const edges: Record<Exclude<EdgeRole, 'none'>, { dark: EdgeStyle; light: EdgeStyle }> = {
+  ground: {
+    dark:  { borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
+    light: { borderWidth: 0, borderColor: 'transparent' },
+  },
   elevated: {
     dark:  { borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)' },
     light: { borderWidth: 1, borderColor: 'rgba(0,0,0,0.04)' },

@@ -47,7 +47,7 @@ export function resolveSurface(role: SurfaceRole, mode: Mode): ResolvedSurface {
   const result: ResolvedSurface = { backgroundColor: bg };
 
   // Add edge treatment
-  if (role === 'elevated' || role === 'raised' || role === 'input') {
+  if (role === 'ground' || role === 'elevated' || role === 'raised' || role === 'input') {
     const edge = edges[role][mode];
     result.borderWidth = edge.borderWidth;
     result.borderColor = edge.borderColor;
