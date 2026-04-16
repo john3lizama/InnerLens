@@ -1,22 +1,26 @@
 /**
- * MoodGraphCard — 14-day mood trend on the Home tab.
+ * MoodGraphCard — 7-day mood trend on the Home tab.
  *
- * One bar per day. Bar direction encodes valence (up = positive,
- * down = negative), magnitude = intensity of that day's dominant emotion,
- * color = theme color for that emotion. Days with no signal render as a
- * faint tick on the midline — the column stays visually present so the
- * chart reads as a rhythm, not a void.
+ * Stacked-segment pill design: every day renders as one rounded pill
+ * that fills 100% of the chart height, with vertical bands proportional
+ * to each valence bucket's intensity-weighted share of that day. A day
+ * with only positive activity is a solid mint pill; a day mixing all
+ * three valences shows three stacked bands summing to the full pill
+ * height — largest at the base. A faint single-color track marks days
+ * with no signal. A single-letter weekday label sits below each column.
+ * The card closes with a 3-chip legend (Positive / Negative / Neutral)
+ * so bar colors are self-explanatory without requiring hover.
  *
- * Color fallback: the theme palette (`colors.emotion`) covers ~18 canonical
- * feelings, but GPT-4o-mini returns a much wider vocabulary. When an
- * emotion isn't in the palette, we tint the bar using the theme's
- * secondary (positive) or accent (negative) color — so unknown emotions
- * still carry meaning, not just neutral lavender.
+ * Bucket resolution: the backend already folds raw emotions onto their
+ * valence sign (+1/-1/0) and emits shares keyed as "positive" /
+ * "negative" / "neutral", so the client just maps bucket → color via
+ * `colors.mood.<bucket>`. Same hex in light and dark so each chip
+ * reads against both card fills.
  *
  * States:
- *   - loading  — 3-bar faded skeleton
- *   - locked   — example bars @ opacity 0.35 + "Example" corner badge
- *                (when conversation_count + journal_count < 3)
+ *   - loading  — 7 faded pill silhouettes
+ *   - locked   — example bars @ opacity 0.35 + "start a conversation…"
+ *                copy (when conversation_count + journal_count < 3)
  *   - unlocked — real bars at full opacity
  *
  * The card fetches its own data on focus; Home doesn't know or care.
@@ -27,153 +31,266 @@ import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
 import Surface from '../ui/Surface';
-import { typography, spacing, borderRadius } from '../../theme';
+import { typography, spacing } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
-import { getEmotionColor } from '../../utils/emotionColors';
 import { enterConfig } from '../../theme/motion';
 import type { AppColors } from '../../theme/colors';
+import {
+  MOOD_BUCKETS,
+  bucketFor,
+  toSegments,
+  type BucketKey,
+} from '../../utils/emotionBuckets';
+import { formatDayOfWeek } from '../../utils/formatDate';
 import * as moodService from '../../services/moodService';
 import type { MoodDay, MoodTimeseries } from '../../services/moodService';
 
 // ── Geometry ────────────────────────────────────────────────────────────
-const WINDOW_DAYS = 14;
-const CHART_HEIGHT = 64;        // total chart area
-const MID = CHART_HEIGHT / 2;   // y of the zero line
-const MAX_BAR = MID - 4;        // leave a hair of top/bottom margin
-const MIN_BAR = 3;              // still show something for tiny intensities
-const BAR_GAP = 4;
-const EMPTY_TICK_HEIGHT = 2;    // faint horizontal stub on days with no data
+const WINDOW_DAYS = 7;
+const CHART_HEIGHT = 96;
+const BAR_GAP = 8;
+const PILL_RADIUS = 9999;
+const EMPTY_TRACK_OPACITY = 0.08;
+const BUCKET_LABELS: Record<BucketKey, string> = {
+  positive: 'Positive',
+  negative: 'Negative',
+  neutral:  'Neutral',
+};
 
-// `getEmotionColor` returns this string when the palette has no entry.
-// Kept in sync with utils/emotionColors.ts DEFAULT_COLOR.
-const DEFAULT_PALETTE_COLOR = '#B8B8D4';
+// Label color per bucket. All three bucket hexes are soft light tints
+// (mint / rose / periwinkle), so dark body text reads cleanly on every
+// band in both light and dark mode — no per-bucket inversion needed.
+const BUCKET_LABEL_COLOR: Record<BucketKey, string> = {
+  positive: '#2D2B3D',
+  negative: '#2D2B3D',
+  neutral:  '#2D2B3D',
+};
 
-// ── Example data (14 days, realistic spread) ───────────────────────────
-// Used in the locked state. Emotion names intentionally chosen from the
-// theme palette so colors render with real hues, not the neutral fallback.
-const EXAMPLE_DAYS: MoodDay[] = [
-  { date: 'e0',  dominant_emotion: 'joy',        intensity: 0.7, valence: 1 },
-  { date: 'e1',  dominant_emotion: 'calm',       intensity: 0.55, valence: 1 },
-  { date: 'e2',  dominant_emotion: 'gratitude',  intensity: 0.8, valence: 1 },
-  { date: 'e3',  dominant_emotion: 'stress',     intensity: 0.65, valence: -1 },
-  { date: 'e4',  dominant_emotion: 'hope',       intensity: 0.6, valence: 1 },
-  { date: 'e5',  dominant_emotion: 'anxiety',    intensity: 0.45, valence: -1 },
-  { date: 'e6',  dominant_emotion: 'calm',       intensity: 0.7, valence: 1 },
-  { date: 'e7',  dominant_emotion: 'clarity',    intensity: 0.85, valence: 1 },
-  { date: 'e8',  dominant_emotion: 'overwhelm',  intensity: 0.5, valence: -1 },
-  { date: 'e9',  dominant_emotion: 'courage',    intensity: 0.75, valence: 1 },
-  { date: 'e10', dominant_emotion: 'gratitude',  intensity: 0.6, valence: 1 },
-  { date: 'e11', dominant_emotion: 'joy',        intensity: 0.8, valence: 1 },
-  { date: 'e12', dominant_emotion: 'hope',       intensity: 0.7, valence: 1 },
-  { date: 'e13', dominant_emotion: 'calm',       intensity: 0.65, valence: 1 },
+// ── Example data (7 days, 3 valence buckets) ──────────────────────────
+// Drives the locked-state preview. Mix of solid pills (one bucket), 2-
+// band (two buckets), and one 3-band day so the segmented look is
+// visible before a real user has any data. Shape mirrors the backend
+// /mood/timeseries payload — `emotion` is already "positive" /
+// "negative" / "neutral" with matching valence sign, so the client
+// rendering path is exercised identically to the unlocked view.
+const EXAMPLE_EMOTIONS: MoodDay[] = [
+  {
+    date: 'e0',
+    emotions: [
+      { emotion: 'positive', share: 0.8, valence: 1 },
+      { emotion: 'neutral',  share: 0.2, valence: 0 },
+    ],
+  },
+  {
+    date: 'e1',
+    emotions: [
+      { emotion: 'positive', share: 0.5, valence: 1 },
+      { emotion: 'negative', share: 0.3, valence: -1 },
+      { emotion: 'neutral',  share: 0.2, valence: 0 },
+    ],
+  },
+  {
+    date: 'e2',
+    emotions: [
+      { emotion: 'positive', share: 1.0, valence: 1 },
+    ],
+  },
+  {
+    date: 'e3',
+    emotions: [
+      { emotion: 'negative', share: 0.6, valence: -1 },
+      { emotion: 'positive', share: 0.4, valence: 1 },
+    ],
+  },
+  {
+    date: 'e4',
+    emotions: [
+      { emotion: 'negative', share: 0.7, valence: -1 },
+      { emotion: 'neutral',  share: 0.3, valence: 0 },
+    ],
+  },
+  {
+    date: 'e5',
+    emotions: [
+      { emotion: 'negative', share: 1.0, valence: -1 },
+    ],
+  },
+  {
+    date: 'e6',
+    emotions: [
+      { emotion: 'neutral',  share: 0.6, valence: 0 },
+      { emotion: 'positive', share: 0.4, valence: 1 },
+    ],
+  },
 ];
 
-/**
- * Resolve the bar color for an emotion:
- *   1. theme palette if it covers the emotion,
- *   2. else a valence-tinted fallback (secondary for +, accent for –),
- *   3. else the palette's neutral default.
- *
- * This is the fix for "gray line" complaints when real data contains
- * emotions the palette doesn't list explicitly.
- */
-function resolveBarColor(
-  emotion: string,
-  valence: number,
-  colors: AppColors,
-): string {
-  const themed = getEmotionColor(emotion, colors);
-  if (themed && themed !== DEFAULT_PALETTE_COLOR) return themed;
-  if (valence > 0) return colors.secondaryLight ?? colors.secondary;
-  if (valence < 0) return colors.accentLight ?? colors.accent;
-  return DEFAULT_PALETTE_COLOR;
+interface Slot {
+  date: string;          // YYYY-MM-DD (local) — drives weekday letter
+  mood: MoodDay | null;
 }
 
-// Build a fixed-length slot array for the last N days (oldest → newest).
-// Backend returns only days that had signal; we project onto the window
-// so the chart always has 14 equally-spaced columns.
-function alignToWindow(days: MoodDay[]): (MoodDay | null)[] {
+// Build a 7-slot array (oldest → newest) keyed on the local calendar
+// date, then project the backend signal onto it. Absent dates stay null.
+function alignToWindow(days: MoodDay[]): Slot[] {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const byDate = new Map(days.map((d) => [d.date, d]));
-  const slots: (MoodDay | null)[] = [];
+  const slots: Slot[] = [];
   for (let i = WINDOW_DAYS - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
-    // Local-date ISO slug (YYYY-MM-DD). Using toISOString() here would
-    // silently shift by the UTC offset and mis-align the window.
+    // Local-date ISO slug. `toISOString()` would silently shift by the
+    // UTC offset and mis-align the window for users west of UTC.
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    slots.push(byDate.get(iso) ?? null);
+    slots.push({ date: iso, mood: byDate.get(iso) ?? null });
   }
   return slots;
 }
 
-interface BarsProps {
-  slots: (MoodDay | null)[];
-  midlineColor: string;
-  colors: AppColors;
+// Example slots still carry real local dates so the weekday letters
+// rotate naturally day-to-day, even though the mood values are synthetic.
+function buildExampleSlots(): Slot[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return EXAMPLE_EMOTIONS.map((mood, idx) => {
+    const daysBack = WINDOW_DAYS - 1 - idx;
+    const d = new Date(today);
+    d.setDate(today.getDate() - daysBack);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { date: iso, mood };
+  });
 }
 
-function Bars({ slots, midlineColor, colors }: BarsProps) {
+// ── Aggregate shares for legend ────────────────────────────────────────
+// Sum each bucket's share across all days in the window, then normalize
+// so the three percentages add to 100%.
+function aggregateShares(slots: Slot[]): Record<BucketKey, number> {
+  const totals: Record<BucketKey, number> = { positive: 0, negative: 0, neutral: 0 };
+  for (const slot of slots) {
+    for (const e of slot.mood?.emotions ?? []) {
+      const { bucket } = bucketFor(e.emotion, e.valence);
+      totals[bucket] += e.share;
+    }
+  }
+  const sum = totals.positive + totals.negative + totals.neutral;
+  if (sum <= 0) return totals;
+  return {
+    positive: totals.positive / sum,
+    negative: totals.negative / sum,
+    neutral: totals.neutral / sum,
+  };
+}
+
+// ── Legend (bottom row of chips) ────────────────────────────────────────
+interface LegendProps {
+  colors: AppColors;
+  shares: Record<BucketKey, number>;
+}
+
+function Legend({ colors, shares }: LegendProps) {
   return (
-    <View style={[styles.chart, { height: CHART_HEIGHT }]}>
-      {slots.map((slot, i) => (
-        <View key={slot?.date ?? `gap-${i}`} style={styles.column}>
-          {slot ? (
-            <Bar slot={slot} color={resolveBarColor(slot.dominant_emotion, slot.valence, colors)} />
-          ) : (
-            // Empty-day tick: keeps the column visually present without
-            // implying a neutral reading. Thin stub centered on the midline.
-            <View
-              style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                top: MID - EMPTY_TICK_HEIGHT / 2,
-                height: EMPTY_TICK_HEIGHT,
-                borderRadius: 1,
-                backgroundColor: midlineColor,
-                opacity: 0.25,
-              }}
-            />
-          )}
-        </View>
-      ))}
-      {/* Mid-line — drawn above the bars so both directions read from it */}
-      <View
-        pointerEvents="none"
-        style={[
-          styles.midline,
-          { top: MID, backgroundColor: midlineColor },
-        ]}
-      />
+    <View style={styles.legend}>
+      {MOOD_BUCKETS.map((key) => {
+        const pct = Math.round(shares[key] * 100);
+        return (
+          <View
+            key={key}
+            style={[styles.legendPill, { backgroundColor: colors.mood[key] }]}
+          >
+            <Text style={[styles.legendLabel, { color: BUCKET_LABEL_COLOR[key] }]}>
+              {pct > 0 ? `${pct}% ${BUCKET_LABELS[key]}` : BUCKET_LABELS[key]}
+            </Text>
+          </View>
+        );
+      })}
     </View>
   );
 }
 
-function Bar({ slot, color }: { slot: MoodDay; color: string }) {
-  const magnitude = Math.max(MIN_BAR, Math.round(slot.intensity * MAX_BAR));
-  // Positive valence: grow upward from mid; negative: grow downward.
-  // Neutrals (valence 0) get a small centered bar straddling the midline.
-  const isPositive = slot.valence > 0;
-  const isNegative = slot.valence < 0;
-  const top = isPositive
-    ? MID - magnitude
-    : isNegative
-    ? MID
-    : MID - Math.round(magnitude / 2);
+// ── Bars + weekday labels ──────────────────────────────────────────────
+interface BarsProps {
+  slots: Slot[];
+  colors: AppColors;
+  emptyTrackColor: string;
+  weekdayColor: string;
+}
+
+function Bars({ slots, colors, emptyTrackColor, weekdayColor }: BarsProps) {
   return (
-    <View
-      style={{
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        top,
-        height: magnitude,
-        borderRadius: 3,
-        backgroundColor: color,
-      }}
-    />
+    <View style={styles.chartWrap}>
+      <View style={[styles.chart, { height: CHART_HEIGHT }]}>
+        {slots.map((slot) => (
+          <View key={slot.date} style={styles.column}>
+            <BarColumn
+              slot={slot}
+              colors={colors}
+              emptyTrackColor={emptyTrackColor}
+            />
+          </View>
+        ))}
+      </View>
+      <View style={styles.labelsRow}>
+        {slots.map((slot) => (
+          <View key={`label-${slot.date}`} style={styles.column}>
+            <Text style={[styles.dayLabel, { color: weekdayColor }]}>
+              {formatDayOfWeek(slot.date)}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+interface BarColumnProps {
+  slot: Slot;
+  colors: AppColors;
+  emptyTrackColor: string;
+}
+
+function BarColumn({ slot, colors, emptyTrackColor }: BarColumnProps) {
+  const emotions = slot.mood?.emotions ?? [];
+
+  // No backend signal for this slot — faint track only, no foreground
+  // pill. Keeps the column visually present without implying a reading.
+  if (emotions.length === 0) {
+    return (
+      <View
+        style={[
+          styles.pillClip,
+          {
+            backgroundColor: emptyTrackColor,
+            opacity: EMPTY_TRACK_OPACITY,
+          },
+        ]}
+      />
+    );
+  }
+
+  // Merge raw emotions onto the 11 legend buckets (joy + happiness +
+  // bliss → one happiness band), then stack largest at the base so the
+  // dominant emotion reads as the pill's visual foundation. Inner
+  // segments are plain rectangles; the outer pillClip's overflow:hidden
+  // + full radius clips them into the pill outline. Each band centers
+  // its own "NN%" label (elided on bands too thin to hold one).
+  const segments = toSegments(emotions);
+  let bottom = 0;
+  return (
+    <View style={styles.pillClip}>
+      {segments.map((seg) => {
+        const height = seg.share * CHART_HEIGHT;
+        const style = {
+          position: 'absolute' as const,
+          left: 0,
+          right: 0,
+          bottom,
+          height,
+          backgroundColor: colors.mood[seg.bucket],
+        };
+        bottom += height;
+        return <View key={seg.bucket} style={style} />;
+      })}
+    </View>
   );
 }
 
@@ -194,7 +311,7 @@ export default function MoodGraphCard() {
             setData(res);
             setError(false);
           }
-        } catch (err) {
+        } catch {
           // Treat network/auth failures as "locked" — shows example data.
           if (!cancelled) setError(true);
         } finally {
@@ -207,63 +324,59 @@ export default function MoodGraphCard() {
     }, [])
   );
 
-  // Decide render state.
   const unlocked = !!data?.unlocked && !error;
   const progressTotal =
     (data?.conversation_count ?? 0) + (data?.journal_count ?? 0);
-  const remaining = Math.max(0, 3 - progressTotal);
-
-  const realSlots = data ? alignToWindow(data.days) : [];
-  const exampleSlots: (MoodDay | null)[] = EXAMPLE_DAYS;
-  const slotsToRender = unlocked ? realSlots : exampleSlots;
-
-  const midlineColor = surfaces.text.tertiary;
-
-  // Copy
-  let sublabel = '';
-  if (loading) sublabel = '';
-  else if (unlocked) sublabel = 'Last 14 days';
-  else if (progressTotal === 0) sublabel = 'Example';
-  else sublabel = `${remaining} more to unlock`;
+  const slotsToRender: Slot[] = unlocked
+    ? alignToWindow(data!.days)
+    : buildExampleSlots();
 
   return (
     <Animated.View entering={FadeIn.duration(enterConfig.content.duration).delay(150)}>
       <Surface role="ground" radius="xl" padded style={styles2.card}>
         <View style={styles2.header}>
           <Text style={styles2.title}>Your mood</Text>
-          {sublabel ? (
-            <Text style={styles2.sublabel}>{sublabel}</Text>
-          ) : null}
         </View>
 
+        <Text style={styles2.subtitle}>Based on daily activity</Text>
+
         {loading ? (
-          <View style={[styles.chart, { height: CHART_HEIGHT }]}>
-            {[0.4, 0.6, 0.3, 0.5, 0.35, 0.55, 0.45].map((h, i) => (
-              <View key={i} style={styles.column}>
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    top: MID - h * 20,
-                    height: h * 20,
-                    borderRadius: 3,
-                    backgroundColor: surfaces.text.tertiary,
-                    opacity: 0.2,
-                  }}
-                />
-              </View>
-            ))}
-            <View
-              pointerEvents="none"
-              style={[styles.midline, { top: MID, backgroundColor: midlineColor, opacity: 0.25 }]}
-            />
+          <View style={styles.chartWrap}>
+            <View style={[styles.chart, { height: CHART_HEIGHT }]}>
+              {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                <View key={i} style={styles.column}>
+                  <View
+                    style={[
+                      styles.pill,
+                      {
+                        top: 0,
+                        bottom: 0,
+                        backgroundColor: surfaces.text.tertiary,
+                        opacity: 0.15,
+                      },
+                    ]}
+                  />
+                </View>
+              ))}
+            </View>
+            <View style={styles.labelsRow}>
+              {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                <View key={i} style={styles.column} />
+              ))}
+            </View>
           </View>
         ) : (
           <View style={unlocked ? undefined : styles2.lockedWrap}>
-            <Bars slots={slotsToRender} midlineColor={midlineColor} colors={colors} />
+            <Bars
+              slots={slotsToRender}
+              colors={colors}
+              emptyTrackColor={surfaces.text.tertiary}
+              weekdayColor={surfaces.text.tertiary}
+            />
           </View>
         )}
+
+        <Legend colors={colors} shares={aggregateShares(slotsToRender)} />
 
         {!loading && !unlocked ? (
           <Text style={styles2.lockedCopy}>
@@ -279,21 +392,58 @@ export default function MoodGraphCard() {
 
 // ── Static (non-themed) styles ──────────────────────────────────────────
 const styles = StyleSheet.create({
+  // Three chips fit comfortably on one row on any phone width, so the
+  // wrap-to-two-rows treatment the 11-bucket version needed is gone.
+  legend: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: spacing.md,
+  },
+  legendPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 9999,
+  },
+  legendLabel: {
+    ...typography.caption,
+    fontSize: 10,
+  },
+  chartWrap: {
+    marginTop: spacing.md,
+  },
   chart: {
     flexDirection: 'row',
     gap: BAR_GAP,
-    position: 'relative',
   },
   column: {
     flex: 1,
     position: 'relative',
   },
-  midline: {
+  pill: {
     position: 'absolute',
     left: 0,
     right: 0,
-    height: 1,
-    opacity: 0.35,
+    borderRadius: PILL_RADIUS,
+  },
+  // Stacked-segment container. Full-radius + overflow:hidden clip
+  // the inner rectangular bands into a pill outline at top and bottom.
+  pillClip: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderRadius: PILL_RADIUS,
+    overflow: 'hidden',
+  },
+  labelsRow: {
+    flexDirection: 'row',
+    gap: BAR_GAP,
+    marginTop: spacing.xs,
+  },
+  dayLabel: {
+    ...typography.caption,
+    textAlign: 'center',
   },
 });
 
@@ -305,18 +455,16 @@ const makeStyles = (surfaces: any) =>
       paddingVertical: spacing.lg,
     },
     header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'baseline',
-      marginBottom: spacing.md,
+      marginBottom: spacing.sm,
     },
     title: {
       ...typography.h3,
       color: surfaces.text.primary,
     },
-    sublabel: {
+    subtitle: {
       ...typography.caption,
-      color: surfaces.text.tertiary,
+      color: surfaces.text.secondary,
+      marginTop: spacing.xs,
     },
     lockedWrap: {
       opacity: 0.35,

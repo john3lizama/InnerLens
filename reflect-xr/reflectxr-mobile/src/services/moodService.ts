@@ -1,20 +1,27 @@
 /**
  * moodService — GET /mood/timeseries for the Home-tab mood graph.
  *
- * Returns one dominant-emotion point per day in the user's tz, plus
- * gating counts. The UI uses `unlocked` to decide whether to render the
- * real graph or an example/locked state — we don't try to enforce that
- * logic here.
+ * Returns the full intensity-weighted emotion distribution for each day
+ * in the user's tz, plus gating counts. The UI uses `unlocked` to decide
+ * whether to render the real graph or an example/locked state — we
+ * don't try to enforce that logic here.
+ *
+ * Each day's `emotions[]` shares sum to ~1.0 — the client renders every
+ * day's pill at full height and divides it proportionally.
  */
 
 import api from './api';
 import { getDeviceTz } from './journalService';
 
+export interface EmotionShare {
+  emotion: string;             // lowercase raw label, e.g. "joy"
+  share: number;               // 0..1; shares within a day sum to ~1.0
+  valence: -1 | 0 | 1;         // signed direction via backend valence_of()
+}
+
 export interface MoodDay {
   date: string;                // "YYYY-MM-DD" in device tz
-  dominant_emotion: string;    // lowercase, e.g. "joy"
-  intensity: number;           // 0..1
-  valence: -1 | 0 | 1;         // signed direction for the bar
+  emotions: EmotionShare[];    // sorted by share desc; always non-empty
 }
 
 export interface MoodTimeseries {

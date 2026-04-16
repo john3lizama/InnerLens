@@ -1,24 +1,28 @@
 """
 mood.py router — Timeseries endpoint behind the Home-tab mood graph.
 
-Collapses the per-message and per-journal `emotion_tags` JSONB into one
-(date, dominant_emotion, intensity, valence) point per day within a
-caller-controlled window. Also returns gating counts so the client can
-decide whether to show the real graph or the example/locked state.
+Collapses the per-message and per-journal `emotion_tags` JSONB into a
+positive / negative / neutral breakdown per day within a caller-
+controlled window. Also returns gating counts so the client can decide
+whether to show the real graph or the example/locked state.
 
-Aggregation is intentionally simple:
+Aggregation is valence-only, intensity-weighted:
   - Flatten emotion_tags across both sources, bucketed to the user's local
     date (Postgres-side, matching app/routers/activity.py's pattern).
-  - Sum intensities per (date, emotion). Dominant = argmax per day.
-  - Intensity reported = mean of the dominant's contributions that day.
-  - Valence from app.ai.emotion_valence — unknown keys default to 0.
+  - Resolve each raw emotion to a sign via `valence_of()` (+1 / -1 / 0)
+    and sum its intensity into the matching bucket for that day.
+  - For each day, divide by the day's total so every day's shares sum
+    to ~1.0. Emit one `EmotionShare` per non-empty bucket, with
+    `emotion ∈ {"positive","negative","neutral"}`.
+  - The client renders each day's pill at full height and divides it
+    proportionally by share — a day with only positive activity is a
+    solid pill; a day mixing all three shows three stacked bands.
 
 Window cap is 60 days: long enough to cover the Home card's 14-day view
 comfortably and any near-future "show me last month" follow-up, short
 enough that the JSONB scan stays bounded.
 """
 
-import logging
 import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -33,15 +37,13 @@ try:
 except ImportError:  # pragma: no cover
     ZoneInfo = None  # type: ignore
 
-from app.ai.emotion_valence import valence_of, EMOTION_VALENCE
+from app.ai.emotion_valence import valence_of
 from app.db.database import get_db
 from app.models.journal_entry import JournalEntry
 from app.models.message import Message
 from app.models.session import Session
-from app.schemas.mood import MoodDay, MoodTimeseriesResponse
+from app.schemas.mood import EmotionShare, MoodDay, MoodTimeseriesResponse
 from app.services.auth_service import get_current_user
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -96,36 +98,41 @@ def _iter_tags(raw: Any) -> Iterable[tuple[str, float]]:
         yield emotion.lower(), iv
 
 
+_VALENCE_BUCKET: dict[int, str] = {1: "positive", -1: "negative", 0: "neutral"}
+
+
 def _collapse(rows: Iterable[tuple[date, Any]]) -> list[MoodDay]:
-    """Reduce (local_date, emotion_tags_jsonb) rows to one MoodDay per day."""
-    # (day, emotion) -> list of intensities
-    per_day_emotion: dict[tuple[date, str], list[float]] = defaultdict(list)
+    """Reduce (local_date, emotion_tags_jsonb) rows to one MoodDay per day.
+
+    Each raw emotion is folded onto its valence sign (+1/-1/0), intensities
+    are summed per sign, and the day's three bucket totals are divided by
+    the day's grand total so shares sum to ~1.0. Empty buckets are omitted
+    — a day whose activity was entirely positive returns a single
+    `EmotionShare` with emotion="positive", share=1.0."""
+    # day -> valence sign -> summed intensity
+    by_day: dict[date, dict[int, float]] = defaultdict(lambda: defaultdict(float))
     for d, tags in rows:
         for emo, iv in _iter_tags(tags):
-            per_day_emotion[(d, emo)].append(iv)
-
-    # Group back by day, pick dominant.
-    per_day: dict[date, list[tuple[str, list[float]]]] = defaultdict(list)
-    for (d, emo), ivs in per_day_emotion.items():
-        per_day[d].append((emo, ivs))
+            by_day[d][valence_of(emo)] += iv
 
     out: list[MoodDay] = []
-    for d in sorted(per_day.keys()):
-        contributions = per_day[d]
-        # Dominant by summed intensity; tiebreak on |valence| (prefer
-        # something with signal over neutrals), then alphabetical for
-        # determinism across requests.
-        contributions.sort(
-            key=lambda c: (-sum(c[1]), -abs(valence_of(c[0])), c[0])
-        )
-        dom_emo, dom_ivs = contributions[0]
-        mean_intensity = sum(dom_ivs) / len(dom_ivs)
-        out.append(MoodDay(
-            date=d.isoformat(),
-            dominant_emotion=dom_emo,
-            intensity=round(mean_intensity, 4),
-            valence=valence_of(dom_emo),
-        ))
+    for d in sorted(by_day.keys()):
+        totals = by_day[d]
+        s = sum(totals.values())
+        if s <= 0:
+            continue
+        # Deterministic pos → neg → neutral ordering. The client re-sorts
+        # by share desc before rendering, so ordering here is cosmetic —
+        # primarily useful when eyeballing raw API output.
+        shares = [
+            EmotionShare(
+                emotion=_VALENCE_BUCKET[v],
+                share=round(totals[v] / s, 6),
+                valence=v,
+            )
+            for v in (1, -1, 0) if totals.get(v, 0) > 0
+        ]
+        out.append(MoodDay(date=d.isoformat(), emotions=shares))
     return out
 
 
@@ -139,12 +146,15 @@ async def get_mood_timeseries(
     current_user=Depends(get_current_user),
 ):
     """
-    Return the user's mood as one dominant-emotion point per day across the
-    last `days` days, plus gating counts so the client can show the
-    locked/example state when the user hasn't contributed enough signal yet.
+    Return the user's mood as a positive/negative/neutral breakdown per day
+    across the last `days` days, plus gating counts so the client can show
+    the locked/example state when the user hasn't contributed enough signal
+    yet.
 
-    A day with no tags is omitted from `days` (a missing day is not a
-    neutral day).
+    Each day's `emotions[]` has 1-3 entries (one per non-empty valence
+    bucket), shares sum to ~1.0. The client stacks them into a 100%-height
+    pill. A day with no tags is omitted from `days` (a missing day is not
+    a neutral day).
     """
     user_tz = _valid_tz(tz)
     today = _today_in_tz(user_tz)
@@ -208,20 +218,6 @@ async def get_mood_timeseries(
     journal_count = journal_result.scalar() or 0
 
     unlocked = (conversation_count + journal_count) >= 3
-
-    # Log once per call if the classifier produces keys not explicitly
-    # catalogued in EMOTION_VALENCE. These still render correctly via the
-    # substring-heuristic fallback in `valence_of()`, but keeping a trail
-    # helps us grow the explicit table over time.
-    unknowns = {
-        d.dominant_emotion for d in days_out
-        if d.dominant_emotion not in EMOTION_VALENCE
-    }
-    if unknowns:
-        logger.info(
-            "mood: emotions resolved via heuristic (consider adding to EMOTION_VALENCE): %s",
-            sorted(unknowns),
-        )
 
     return MoodTimeseriesResponse(
         days=days_out,

@@ -60,3 +60,22 @@ export function formatTime(dateString: string): string {
     hour12: true,
   });
 }
+
+/**
+ * Parse a YYYY-MM-DD slug as a local-calendar date and return its
+ * single-letter weekday label (M / T / W / T / F / S / S).
+ *
+ * Uses `new Date(y, m - 1, d)` explicitly — passing "YYYY-MM-DD" to the
+ * Date constructor treats the string as UTC midnight, which shifts the
+ * calendar day for users west of UTC (e.g. PST would render Wednesday
+ * as Tuesday). This implementation stays tz-safe by avoiding that path.
+ */
+export function formatDayOfWeek(dateString: string): string {
+  const parts = dateString.split('-');
+  if (parts.length !== 3) return '';
+  const [y, m, d] = parts.map(Number);
+  if (!y || !m || !d) return '';
+  const date = new Date(y, m - 1, d);
+  if (isNaN(date.getTime())) return '';
+  return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][date.getDay()] ?? '';
+}

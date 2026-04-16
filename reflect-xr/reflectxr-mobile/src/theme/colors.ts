@@ -38,6 +38,17 @@ const shared = {
     renewal: '#B8D8B8',
     resilience: '#C8B8A8',
   } as Record<string, string>,
+
+  // Mood-graph legend buckets (3: valence-only). All three carry a
+  // purple undertone that connects to the app's primary (#6C63FF) so
+  // the graph feels native rather than bolted on. Same hex in light
+  // and dark — all are light enough for dark body text (#2D2B3D) and
+  // read cleanly against both card: '#FFFFFF' and card: '#24242E'.
+  mood: {
+    positive: '#8C92AC', // cool lavender-grey
+    negative: '#DBD7D2', // warm taupe
+    neutral:  '#B2BEB5', // sage mist
+  },
 };
 
 export const lightColors = {
