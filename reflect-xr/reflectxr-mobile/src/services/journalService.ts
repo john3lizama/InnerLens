@@ -91,3 +91,12 @@ export const createJournal = async (
   });
   return res.data;
 };
+
+export const deleteJournal = async (id: string): Promise<void> => {
+  await api.delete(`/journal/${id}`);
+};
+
+export const updateJournal = async (id: string, content: string) => {
+  const res = await api.patch(`/journal/${id}`, { content });
+  return res.data;
+};

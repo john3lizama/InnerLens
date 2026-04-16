@@ -7,16 +7,22 @@
  * - Monthly section grouping with subtle headers
  * - Empty state: warm copy, smaller icon
  * - Uses surface tokens for mode-aware styling
+ * - Swipe-left to reveal Edit + Delete actions
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
-import { StyleSheet, Text, View, SectionList, ActivityIndicator } from 'react-native';
+import React, { createRef, useState, useCallback, useMemo, useRef } from 'react';
+import type { RefObject } from 'react';
+import { StyleSheet, Text, View, SectionList, ActivityIndicator, Alert, Pressable } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import ReanimatedSwipeable, {
+  type SwipeableMethods,
+} from 'react-native-gesture-handler/ReanimatedSwipeable';
+import * as Haptics from 'expo-haptics';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import JournalCard from '../../components/journal/JournalCard';
-import { typography, spacing } from '../../theme';
+import { typography, spacing, borderRadius } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
-import { Ionicons } from '@expo/vector-icons';
 import * as journalService from '../../services/journalService';
 
 interface JournalEntry {
@@ -78,10 +84,23 @@ function EmptyState() {
 
 export default function JournalListScreen() {
   const navigation = useNavigation() as any;
-  const { surfaces } = useTheme();
+  const { surfaces, colors } = useTheme();
   const styles = makeStyles(surfaces);
   const [journals, setJournals] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // ── Swipe refs (one per row, lazily created) ──────────────────────────
+  const swipeRefs = useRef(
+    new Map<string, RefObject<SwipeableMethods | null>>()
+  );
+  const getSwipeRef = (id: string): RefObject<SwipeableMethods | null> => {
+    let ref = swipeRefs.current.get(id);
+    if (!ref) {
+      ref = createRef<SwipeableMethods | null>();
+      swipeRefs.current.set(id, ref);
+    }
+    return ref;
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -101,6 +120,74 @@ export default function JournalListScreen() {
   };
 
   const sections = useMemo(() => groupByMonth(journals), [journals]);
+
+  // ── Delete with confirmation ──────────────────────────────────────────
+  const confirmDelete = (item: JournalEntry) => {
+    Alert.alert(
+      'Delete this reflection?',
+      'This cannot be undone.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => {
+            swipeRefs.current.get(item.id)?.current?.close();
+          },
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await journalService.deleteJournal(item.id);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              setJournals((prev) => prev.filter((j) => j.id !== item.id));
+              swipeRefs.current.delete(item.id);
+            } catch (err) {
+              console.error('Failed to delete journal:', err);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              swipeRefs.current.get(item.id)?.current?.close();
+              Alert.alert('Could not delete', 'Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // ── Edit — navigate to detail in edit mode ────────────────────────────
+  const handleEdit = (item: JournalEntry) => {
+    swipeRefs.current.get(item.id)?.current?.close();
+    navigation.navigate('JournalDetail', { journalId: item.id, editMode: true });
+  };
+
+  // ── Swipe right actions: Edit + Delete ────────────────────────────────
+  const renderRightActions = (item: JournalEntry) => () => (
+    <View style={styles.swipeActions}>
+      <Pressable
+        onPress={() => handleEdit(item)}
+        style={({ pressed }) => [
+          styles.editAction,
+          pressed && { opacity: 0.7 },
+        ]}
+        accessibilityLabel="Edit reflection"
+      >
+        <Ionicons name="pencil-outline" size={20} color="#fff" />
+        <Text style={styles.actionText}>Edit</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => confirmDelete(item)}
+        style={({ pressed }) => [
+          styles.deleteAction,
+          pressed && { opacity: 0.7 },
+        ]}
+        accessibilityLabel="Delete reflection"
+      >
+        <Ionicons name="trash-outline" size={20} color="#fff" />
+        <Text style={styles.actionText}>Delete</Text>
+      </Pressable>
+    </View>
+  );
 
   if (loading) {
     return (
@@ -141,14 +228,22 @@ export default function JournalListScreen() {
             <Text style={styles.sectionHeader}>{section.title}</Text>
           )}
           renderItem={({ item }) => (
-            <JournalCard
-              id={item.id}
-              content={item.content}
-              emotionTags={item.emotion_tags}
-              imageUrl={item.image?.thumbnail_url || item.image?.image_url || ''}
-              createdAt={item.created_at}
-              onPress={(id) => navigation.navigate('JournalDetail', { journalId: id })}
-            />
+            <ReanimatedSwipeable
+              ref={getSwipeRef(item.id)}
+              renderRightActions={renderRightActions(item)}
+              friction={2}
+              rightThreshold={40}
+              overshootRight={false}
+            >
+              <JournalCard
+                id={item.id}
+                content={item.content}
+                emotionTags={item.emotion_tags}
+                imageUrl={item.image?.thumbnail_url || item.image?.image_url || ''}
+                createdAt={item.created_at}
+                onPress={(id) => navigation.navigate('JournalDetail', { journalId: id })}
+              />
+            </ReanimatedSwipeable>
           )}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           SectionSeparatorComponent={() => <View style={styles.sectionSeparator} />}
@@ -188,6 +283,32 @@ const makeStyles = (surfaces: any) => StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  // Swipe actions
+  swipeActions: {
+    flexDirection: 'row',
+  },
+  editAction: {
+    backgroundColor: '#6C63FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    gap: 4,
+  },
+  deleteAction: {
+    backgroundColor: '#D93B3B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    borderTopRightRadius: borderRadius.xl,
+    borderBottomRightRadius: borderRadius.xl,
+    gap: 4,
+  },
+  actionText: {
+    ...typography.caption,
+    color: '#fff',
+    fontWeight: '600',
   },
 });
 

@@ -29,7 +29,7 @@ export type CreateStackParamList = {
 
 export type JournalStackParamList = {
   JournalList: undefined;
-  JournalDetail: { journalId: string };
+  JournalDetail: { journalId: string; editMode?: boolean };
 };
 
 export type ChatStackParamList = {
