@@ -25,6 +25,7 @@ except ImportError:  # pragma: no cover
 
 from app.db.database import get_db
 from app.models.journal_entry import JournalEntry
+from app.models.message import Message
 from app.models.session import Session
 from app.schemas.activity import (
     ActivityDatesResponse, ActivityStatsResponse,
@@ -91,7 +92,12 @@ async def get_activity_dates(
     """
     user_tz = _valid_tz(tz)
     j_local = _local_date(JournalEntry.created_at, user_tz)
-    s_local = _local_date(Session.created_at, user_tz)
+    # Chat activity keys on Message.created_at (not Session.created_at) so a
+    # message sent today inside a session started days ago still counts as
+    # activity today. Matches the day-bucketing used by /mood/timeseries
+    # (app/routers/mood.py) — without this alignment, the Home mood graph
+    # can light up a day that the streak treats as inactive.
+    m_local = _local_date(Message.created_at, user_tz)
 
     journal_dates = (
         select(j_local.label("active_date"))
@@ -102,11 +108,12 @@ async def get_activity_dates(
     )
 
     session_dates = (
-        select(s_local.label("active_date"))
+        select(m_local.label("active_date"))
+        .join(Session, Session.id == Message.session_id)
         .where(
             Session.user_id == current_user.id,
             Session.source != "create",
-            func.extract("year", s_local) == year,
+            func.extract("year", m_local) == year,
         )
     )
 
@@ -163,14 +170,18 @@ async def get_streak(
     """
     user_tz = _valid_tz(tz)
     j_local = _local_date(JournalEntry.created_at, user_tz)
-    s_local = _local_date(Session.created_at, user_tz)
+    # See /activity/dates above — chat activity is derived from individual
+    # messages, not the parent session's creation timestamp, to stay in sync
+    # with /mood/timeseries.
+    m_local = _local_date(Message.created_at, user_tz)
 
     journal_dates = (
         select(j_local.label("active_date"))
         .where(JournalEntry.user_id == current_user.id)
     )
     session_dates = (
-        select(s_local.label("active_date"))
+        select(m_local.label("active_date"))
+        .join(Session, Session.id == Message.session_id)
         .where(
             Session.user_id == current_user.id,
             Session.source != "create",
