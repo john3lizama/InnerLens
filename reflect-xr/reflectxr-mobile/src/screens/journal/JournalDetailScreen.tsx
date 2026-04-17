@@ -12,18 +12,19 @@
  * - Inline edit mode: text becomes editable in-place with Save/Cancel below
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet, Text, View, ScrollView, Pressable, ActivityIndicator,
   Alert, TextInput,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { File, Paths } from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import EmotionTagList from '../../components/journal/EmotionTagList';
 import { typography, spacing, borderRadius } from '../../theme';
@@ -41,6 +42,7 @@ interface JournalDetail {
   reflection_prompt_used?: string;
   created_at: string;
   word_count: number;
+  is_favorite?: boolean;
 }
 
 export default function JournalDetailScreen() {
@@ -54,6 +56,8 @@ export default function JournalDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
 
   // ── Edit mode state ───────────────────────────────────────────────────
   const [isEditing, setIsEditing] = useState(false);
@@ -71,6 +75,14 @@ export default function JournalDetailScreen() {
       enterEditMode();
     }
   }, [initialEditMode, journal]);
+
+  // Stop any in-flight TTS when leaving the screen — audio should never
+  // leak into the next screen the user navigates to.
+  useEffect(() => {
+    return () => {
+      Speech.stop();
+    };
+  }, []);
 
   const loadJournal = async () => {
     try {
@@ -114,6 +126,47 @@ export default function JournalDetailScreen() {
       setIsSavingEdit(false);
     }
   };
+
+  // Toggle the favorite flag. Optimistic update — flip state immediately,
+  // call the backend in the background, roll back on failure. Keeps the
+  // heart responsive even on slow networks.
+  const toggleFavorite = useCallback(async () => {
+    if (!journal || isTogglingFavorite) return;
+    const next = !journal.is_favorite;
+    haptic.light();
+    setJournal({ ...journal, is_favorite: next });
+    setIsTogglingFavorite(true);
+    try {
+      const updated = await journalService.toggleJournalFavorite(journal.id, next);
+      setJournal(updated);
+    } catch (err) {
+      console.error('Failed to toggle favorite:', err);
+      // Roll back to prior state
+      setJournal(prev => prev ? { ...prev, is_favorite: !next } : prev);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsTogglingFavorite(false);
+    }
+  }, [journal, isTogglingFavorite]);
+
+  // Toggle text-to-speech playback of the journal body.
+  // Tap once to start, tap again to stop. The state flips back on its own
+  // when speech finishes naturally (onDone) or is cancelled (onStopped).
+  const toggleSpeech = useCallback(() => {
+    if (!journal?.content?.trim()) return;
+    haptic.light();
+    if (isSpeaking) {
+      Speech.stop();
+      return;
+    }
+    setIsSpeaking(true);
+    Speech.speak(journal.content, {
+      language: 'en',
+      onDone: () => setIsSpeaking(false),
+      onStopped: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    });
+  }, [journal?.content, isSpeaking]);
 
   const saveImageToPhone = async () => {
     if (!journal?.image?.image_url || saving) return;
@@ -209,16 +262,6 @@ export default function JournalDetailScreen() {
           >
             <Ionicons name="chevron-back" size={24} color={surfaces.text.primary} />
           </Pressable>
-
-          {!isEditing && (
-            <Pressable
-              onPress={enterEditMode}
-              style={styles.editButton}
-              hitSlop={12}
-            >
-              <Ionicons name="create-outline" size={22} color={surfaces.text.secondary} />
-            </Pressable>
-          )}
         </View>
 
         {/* Artwork — full width, 3:4 aspect */}
@@ -236,24 +279,67 @@ export default function JournalDetailScreen() {
           </Animated.View>
         )}
 
-        {/* Date + Save-image button row */}
+        {/* Date + meta actions (speak / save-image) */}
         <View style={styles.metaRow}>
-          <Text style={styles.date}>
+          <Text style={styles.date} numberOfLines={1}>
             {formatFullDate(journal.created_at)} at {formatTime(journal.created_at)}
           </Text>
-          {journal.image && !isEditing && (
-            <Pressable
-              onPress={saveImageToPhone}
-              style={styles.saveButton}
-              hitSlop={12}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator size="small" color={surfaces.text.secondary} />
-              ) : (
-                <Ionicons name="download-outline" size={22} color={surfaces.text.secondary} />
+          {!isEditing && (
+            <View style={styles.metaActions}>
+              <Pressable
+                onPress={toggleSpeech}
+                style={styles.saveButton}
+                hitSlop={12}
+                disabled={!journal.content?.trim()}
+                accessibilityRole="button"
+                accessibilityLabel={isSpeaking ? 'Stop reading journal aloud' : 'Read journal aloud'}
+              >
+                <Feather
+                  name="volume-2"
+                  size={22}
+                  color={isSpeaking ? '#6C63FF' : surfaces.text.secondary}
+                />
+              </Pressable>
+              {journal.image && (
+                <Pressable
+                  onPress={saveImageToPhone}
+                  style={styles.saveButton}
+                  hitSlop={12}
+                  disabled={saving}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save image to photos"
+                >
+                  {saving ? (
+                    <ActivityIndicator size="small" color={surfaces.text.secondary} />
+                  ) : (
+                    <Feather name="download" size={22} color={surfaces.text.secondary} />
+                  )}
+                </Pressable>
               )}
-            </Pressable>
+              <Pressable
+                onPress={toggleFavorite}
+                style={styles.saveButton}
+                hitSlop={12}
+                disabled={isTogglingFavorite}
+                accessibilityRole="button"
+                accessibilityLabel={journal.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+              >
+                <Ionicons
+                  name={journal.is_favorite ? 'heart' : 'heart-outline'}
+                  size={22}
+                  color={journal.is_favorite ? '#FF2D55' : surfaces.text.secondary}
+                />
+              </Pressable>
+              <Pressable
+                onPress={enterEditMode}
+                style={styles.saveButton}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Edit journal"
+              >
+                <Feather name="edit-3" size={22} color={surfaces.text.secondary} />
+              </Pressable>
+            </View>
           )}
         </View>
 
@@ -334,15 +420,16 @@ const makeStyles = (surfaces: any) => StyleSheet.create({
     paddingVertical: spacing.sm,
     alignSelf: 'flex-start',
   },
-  editButton: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xs,
-  },
   metaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.md,
+  },
+  metaActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   saveButton: {
     padding: spacing.xs,
