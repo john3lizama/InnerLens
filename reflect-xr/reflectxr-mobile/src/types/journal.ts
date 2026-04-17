@@ -9,4 +9,5 @@ export interface JournalEntry {
   };
   created_at: string;
   word_count: number;
+  is_favorite?: boolean;
 }

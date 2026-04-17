@@ -100,3 +100,14 @@ export const updateJournal = async (id: string, content: string) => {
   const res = await api.patch(`/journal/${id}`, { content });
   return res.data;
 };
+
+/**
+ * Toggle the favorite flag on a journal entry.
+ * Client passes the desired state (not a blind toggle) so a flaky network
+ * or double-tap doesn't flip it to the wrong value. Returns the full
+ * journal detail.
+ */
+export const toggleJournalFavorite = async (id: string, isFavorite: boolean) => {
+  const res = await api.patch(`/journal/${id}/favorite`, { is_favorite: isFavorite });
+  return res.data;
+};

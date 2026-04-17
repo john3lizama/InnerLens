@@ -1,13 +1,14 @@
 /**
- * JournalListScreen — Redesigned.
+ * FavoritesScreen — dedicated screen listing only favorited reflections.
  *
- * Changes:
- * - Title: "Your reflections" (was "Journal")
- * - Removed subtitle (title is sufficient)
- * - Monthly section grouping with subtle headers
- * - Empty state: warm copy, smaller icon
- * - Uses surface tokens for mode-aware styling
- * - Swipe-left to reveal Edit + Delete actions
+ * Pushed from JournalListScreen via the heart icon at the top-right.
+ * Mirrors the "history" pattern from MindMate (ChatHistoryScreen):
+ * back chevron + title header, grouped list, tap-to-detail,
+ * swipe-left Edit + Delete actions.
+ *
+ * Data: reuses `journalService.getJournals(100, 0)` and filters
+ * client-side to `is_favorite === true`. Fine at current scale —
+ * a dedicated endpoint is the scaling upgrade if this caps out.
  */
 
 import React, { createRef, useState, useCallback, useMemo, useRef } from 'react';
@@ -24,6 +25,7 @@ import JournalCard from '../../components/journal/JournalCard';
 import { typography, spacing, borderRadius } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 import * as journalService from '../../services/journalService';
+import { groupByMonth } from './JournalListScreen';
 
 interface JournalEntry {
   id: string;
@@ -35,57 +37,24 @@ interface JournalEntry {
   is_favorite?: boolean;
 }
 
-interface MonthSection {
-  title: string;
-  data: JournalEntry[];
-}
-
-export function groupByMonth(entries: JournalEntry[]): MonthSection[] {
-  const groups: Record<string, JournalEntry[]> = {};
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
-  ];
-
-  for (const entry of entries) {
-    const date = new Date(entry.created_at);
-    const key = `${date.getFullYear()}-${date.getMonth()}`;
-    const label = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
-    if (!groups[key]) {
-      groups[key] = [];
-    }
-    groups[key].push(entry);
-    // Store label on the key for retrieval
-    (groups as any)[`__label__${key}`] = label;
-  }
-
-  return Object.keys(groups)
-    .filter((k) => !k.startsWith('__label__'))
-    .sort((a, b) => b.localeCompare(a)) // newest first
-    .map((key) => ({
-      title: (groups as any)[`__label__${key}`],
-      data: groups[key],
-    }));
-}
-
-function EmptyState() {
+function EmptyFavorites() {
   const { surfaces } = useTheme();
   return (
     <View style={emptyStyles.container}>
-      <Ionicons name="book-outline" size={40} color={surfaces.text.tertiary} />
+      <Ionicons name="heart-outline" size={40} color={surfaces.text.tertiary} />
       <Text style={[emptyStyles.title, { color: surfaces.text.secondary }]}>
-        Nothing here yet
+        No favorites yet
       </Text>
       <Text style={[emptyStyles.subtitle, { color: surfaces.text.tertiary }]}>
-        When you create something and reflect on it, it'll live here.
+        Tap the heart on a reflection to save it here.
       </Text>
     </View>
   );
 }
 
-export default function JournalListScreen() {
+export default function FavoritesScreen() {
   const navigation = useNavigation() as any;
-  const { surfaces, colors } = useTheme();
+  const { surfaces } = useTheme();
   const styles = makeStyles(surfaces);
   const [journals, setJournals] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,16 +74,16 @@ export default function JournalListScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadJournals();
+      loadFavorites();
     }, [])
   );
 
-  const loadJournals = async () => {
+  const loadFavorites = async () => {
     try {
-      const res = await journalService.getJournals(50, 0);
-      setJournals(res.entries);
+      const res = await journalService.getJournals(100, 0);
+      setJournals(res.entries.filter((e: JournalEntry) => e.is_favorite));
     } catch (err) {
-      console.error('Failed to load journals:', err);
+      console.error('Failed to load favorites:', err);
     } finally {
       setLoading(false);
     }
@@ -190,29 +159,27 @@ export default function JournalListScreen() {
     </View>
   );
 
-  const headerRow = (
-    <View style={styles.header}>
-      <Text style={styles.title}>Your reflections</Text>
+  // Back chevron + title (static across loading / empty / list branches).
+  const header = (
+    <>
       <Pressable
-        onPress={() => navigation.navigate('Favorites')}
+        onPress={() => navigation.goBack()}
+        style={styles.backButton}
         hitSlop={12}
         accessibilityRole="button"
-        accessibilityLabel="View favorites"
+        accessibilityLabel="Back"
       >
-        <Ionicons
-          name="heart-outline"
-          size={24}
-          color={surfaces.text.secondary}
-        />
+        <Ionicons name="chevron-back" size={24} color={surfaces.text.primary} />
       </Pressable>
-    </View>
+      <Text style={styles.title}>Your favorites</Text>
+    </>
   );
 
   if (loading) {
     return (
       <SafeAreaWrapper>
         <View style={styles.container}>
-          {headerRow}
+          {header}
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#6C63FF" />
           </View>
@@ -225,8 +192,8 @@ export default function JournalListScreen() {
     return (
       <SafeAreaWrapper>
         <View style={styles.container}>
-          {headerRow}
-          <EmptyState />
+          {header}
+          <EmptyFavorites />
         </View>
       </SafeAreaWrapper>
     );
@@ -235,7 +202,7 @@ export default function JournalListScreen() {
   return (
     <SafeAreaWrapper>
       <View style={styles.container}>
-        {headerRow}
+        {header}
 
         <SectionList
           sections={sections}
@@ -280,15 +247,14 @@ const makeStyles = (surfaces: any) => StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.lg,
+  backButton: {
+    paddingVertical: spacing.sm,
+    alignSelf: 'flex-start',
   },
   title: {
     ...typography.h2,
     color: surfaces.text.primary,
+    marginBottom: spacing.lg,
   },
   list: {
     paddingBottom: 120,
