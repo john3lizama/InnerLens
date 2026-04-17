@@ -49,6 +49,7 @@ class JournalListItem(BaseModel):
     image: JournalImageSummary | None
     created_at: datetime
     word_count: int
+    is_favorite: bool = False
 
 
 class JournalListResponse(BaseModel):
@@ -66,3 +67,11 @@ class JournalDetailResponse(BaseModel):
     reflection_prompt_used: str | None
     created_at: datetime
     word_count: int
+    is_favorite: bool = False
+
+
+# ── Mutation schemas ─────────────────────────────────────────────────────
+
+class JournalFavoriteUpdate(BaseModel):
+    """PATCH /journal/:id/favorite — Toggle the favorite flag."""
+    is_favorite: bool

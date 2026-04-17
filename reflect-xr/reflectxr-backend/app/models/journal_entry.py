@@ -11,7 +11,7 @@ This table stores that reflection text along with:
 
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, Integer, ForeignKey, func
+from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.db.database import Base
@@ -49,6 +49,13 @@ class JournalEntry(Base):
 
     # Word count — calculated on save, useful for the journal list view
     word_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # ── Favorite flag ────────────────────────────────────────────────────
+    # User-toggled "favorite" marker. Surfaces in the detail view heart icon
+    # and will power a favorites filter on the list view (future task).
+    is_favorite: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
 
     # ── Timestamps ───────────────────────────────────────────────────────
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

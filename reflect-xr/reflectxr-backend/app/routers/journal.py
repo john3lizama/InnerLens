@@ -16,7 +16,7 @@ from app.models.generated_image import GeneratedImage
 from app.schemas.journal import (
     JournalCreateRequest, JournalCreateResponse,
     JournalListResponse, JournalListItem, JournalImageSummary,
-    JournalDetailResponse,
+    JournalDetailResponse, JournalFavoriteUpdate,
 )
 from app.services.auth_service import get_current_user
 from app.services.emotion_service import extract_emotions
@@ -119,6 +119,7 @@ async def list_journal_entries(
             ) if image else None,
             created_at=entry.created_at,
             word_count=entry.word_count,
+            is_favorite=entry.is_favorite,
         ))
 
     return JournalListResponse(entries=items, total=total)
@@ -165,4 +166,57 @@ async def get_journal_entry(
         reflection_prompt_used=entry.reflection_prompt_used,
         created_at=entry.created_at,
         word_count=entry.word_count,
+        is_favorite=entry.is_favorite,
+    )
+
+
+@router.patch("/{entry_id}/favorite", response_model=JournalDetailResponse)
+async def toggle_journal_favorite(
+    entry_id: UUID,
+    payload: JournalFavoriteUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    PATCH /journal/:id/favorite — Set the favorite flag on a journal entry.
+
+    Client sends the desired state (`is_favorite: true` or `false`) rather
+    than a blind toggle so a flaky network / double-tap doesn't flip it to
+    the wrong value. Returns the full journal detail so the client can
+    reconcile any other fields that changed server-side.
+    """
+    result = await db.execute(
+        select(JournalEntry).where(
+            JournalEntry.id == entry_id,
+            JournalEntry.user_id == current_user.id,
+        )
+    )
+    entry = result.scalar_one_or_none()
+
+    if not entry:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+
+    entry.is_favorite = payload.is_favorite
+    await db.commit()
+    await db.refresh(entry)
+
+    # Load the associated image for the response body
+    img_result = await db.execute(
+        select(GeneratedImage).where(GeneratedImage.id == entry.image_id)
+    )
+    image = img_result.scalar_one_or_none()
+
+    return JournalDetailResponse(
+        id=entry.id,
+        content=entry.content,
+        emotion_tags=entry.emotion_tags or [],
+        image=JournalImageSummary(
+            id=image.id,
+            image_url=image.image_url,
+            thumbnail_url=image.thumbnail_url,
+        ) if image else None,
+        reflection_prompt_used=entry.reflection_prompt_used,
+        created_at=entry.created_at,
+        word_count=entry.word_count,
+        is_favorite=entry.is_favorite,
     )
