@@ -20,7 +20,7 @@ import type {
   HomeStackParamList,
   CreateStackParamList,
   JournalStackParamList,
-  ChatStackParamList,
+  PlaygroundStackParamList,
   ProfileStackParamList,
 } from './types';
 
@@ -35,15 +35,19 @@ import ChatHistoryScreen from '../screens/chat/ChatHistoryScreen';
 import ChatImageReveal from '../screens/chat/ChatImageReveal';
 import JournalListScreen from '../screens/journal/JournalListScreen';
 import JournalDetailScreen from '../screens/journal/JournalDetailScreen';
+import FavoritesScreen from '../screens/journal/FavoritesScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import PrivacyScreen from '../screens/profile/PrivacyScreen';
 import AlexaScreen from '../screens/alexa/AlexaScreen';
+import PlaygroundHubScreen from '../screens/playground/PlaygroundHubScreen';
+import AlexaSetupScreen from '../screens/playground/AlexaSetupScreen';
+import ReflectionEnvironmentScreen from '../screens/playground/ReflectionEnvironmentScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const HomeStackNav = createNativeStackNavigator<HomeStackParamList>();
 const CreateStackNav = createNativeStackNavigator<CreateStackParamList>();
 const JournalStackNav = createNativeStackNavigator<JournalStackParamList>();
-const ChatStackNav = createNativeStackNavigator<ChatStackParamList>();
+const PlaygroundStackNav = createNativeStackNavigator<PlaygroundStackParamList>();
 const ProfileStackNav = createNativeStackNavigator<ProfileStackParamList>();
 
 function HomeNavigator() {
@@ -57,8 +61,6 @@ function HomeNavigator() {
       }}
     >
       <HomeStackNav.Screen name="HomeMain" component={HomeScreen} />
-      <HomeStackNav.Screen name="AlexaGallery" component={AlexaScreen} />
-      <HomeStackNav.Screen name="AlexaImageReveal" component={ChatImageReveal} />
     </HomeStackNav.Navigator>
   );
 }
@@ -94,24 +96,39 @@ function JournalNavigator() {
     >
       <JournalStackNav.Screen name="JournalList" component={JournalListScreen} />
       <JournalStackNav.Screen name="JournalDetail" component={JournalDetailScreen} />
+      <JournalStackNav.Screen name="Favorites" component={FavoritesScreen} />
     </JournalStackNav.Navigator>
   );
 }
 
-function ChatNavigator() {
+/**
+ * PlaygroundNavigator — landing on PlaygroundHubScreen, with each feature
+ * card pushing into its own flow. Replaces the old ChatNavigator (which
+ * was just the MindMate chat). MindMate chat is now one of four features
+ * accessed via the hub.
+ */
+function PlaygroundNavigator() {
   const { colors } = useTheme();
   return (
-    <ChatStackNav.Navigator
+    <PlaygroundStackNav.Navigator
       screenOptions={{
         headerShown: false,
         animation: 'slide_from_right',
         contentStyle: { backgroundColor: colors.background },
       }}
     >
-      <ChatStackNav.Screen name="Chat" component={ChatScreen} />
-      <ChatStackNav.Screen name="ChatHistory" component={ChatHistoryScreen} />
-      <ChatStackNav.Screen name="ChatImageReveal" component={ChatImageReveal} />
-    </ChatStackNav.Navigator>
+      <PlaygroundStackNav.Screen name="PlaygroundHub" component={PlaygroundHubScreen} />
+      {/* MindMate chat */}
+      <PlaygroundStackNav.Screen name="Chat" component={ChatScreen} />
+      <PlaygroundStackNav.Screen name="ChatHistory" component={ChatHistoryScreen} />
+      <PlaygroundStackNav.Screen name="ChatImageReveal" component={ChatImageReveal} />
+      {/* Alexa Beta */}
+      <PlaygroundStackNav.Screen name="AlexaSetup" component={AlexaSetupScreen} />
+      <PlaygroundStackNav.Screen name="AlexaGallery" component={AlexaScreen} />
+      <PlaygroundStackNav.Screen name="AlexaImageReveal" component={ChatImageReveal} />
+      {/* TBD */}
+      <PlaygroundStackNav.Screen name="ReflectionEnvironment" component={ReflectionEnvironmentScreen} />
+    </PlaygroundStackNav.Navigator>
   );
 }
 
@@ -135,10 +152,13 @@ export default function MainTabs() {
   const { colors } = useTheme();
   const { hasUnread, clearUnread } = useMindMate();
 
-  // Determine MindMate SF Symbol based on focus + unread state
-  const getMindMateIcon = (focused: boolean): string => {
-    if (focused) return 'bubbles.and.sparkles.fill';
-    return 'bubbles.and.sparkles';
+  // Determine Playground SF Symbol based on focus state.
+  // The unread state still applies to MindMate chat, but the badge logic
+  // (clearUnread on tap) lives in the tabPress listener below — landing
+  // on the hub counts as acknowledging the entry point.
+  const getPlaygroundIcon = (focused: boolean): string => {
+    if (focused) return 'square.grid.2x2.fill';
+    return 'square.grid.2x2';
   };
 
   return (
@@ -150,8 +170,8 @@ export default function MainTabs() {
       screenListeners={{
         tabPress: (e) => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          // Clear unread badge when MindMate tab is tapped
-          if (e.target?.startsWith('MindMate')) {
+          // Clear unread MindMate badge when the Playground tab is tapped.
+          if (e.target?.startsWith('Playground')) {
             clearUnread();
           }
         },
@@ -191,14 +211,14 @@ export default function MainTabs() {
         }}
       />
       <Tab.Screen
-        name="MindMate"
-        component={ChatNavigator}
+        name="Playground"
+        component={PlaygroundNavigator}
         options={{
-          title: 'MindMate',
+          title: 'Playground',
           tabBarIcon: ({ focused }) =>
             Platform.OS === 'ios'
-              ? { type: 'sfSymbol' as const, name: getMindMateIcon(focused) }
-              : { type: 'materialSymbol' as const, name: 'chat' },
+              ? { type: 'sfSymbol' as const, name: getPlaygroundIcon(focused) }
+              : { type: 'materialSymbol' as const, name: 'apps' },
         }}
       />
       <Tab.Screen

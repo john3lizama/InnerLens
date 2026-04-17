@@ -13,7 +13,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.innerlens.reflectxr"
+      "bundleIdentifier": "com.innerlens.reflectxr",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "alexa"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {

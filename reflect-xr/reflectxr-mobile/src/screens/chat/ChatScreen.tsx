@@ -187,6 +187,30 @@ function ChatScreenInner({ initial }: { initial?: InitialChat }) {
       >
         {/* Header — paddingTop uses insets.top with a device-aware fallback */}
         <View style={[styles.header, { paddingTop: topSafeArea + spacing.md }]}>
+          {/*
+            Back chevron — only shown when there's somewhere to go back to
+            (i.e. Chat was pushed from the Playground hub or elsewhere).
+            When Chat is the root of a stack, canGoBack() is false and the
+            chevron is hidden so we don't render a dead tap target.
+          */}
+          {navigation.canGoBack() && (
+            <Pressable
+              onPress={() => navigation.goBack()}
+              hitSlop={12}
+              style={({ pressed }) => [
+                styles.backBtn,
+                pressed && { opacity: 0.5 },
+              ]}
+              accessibilityLabel="Back"
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name="chevron-back"
+                size={24}
+                color={surfaces.text.primary}
+              />
+            </Pressable>
+          )}
           <Image
             source={require('../../../assets/mindmate-icon.svg')}
             style={styles.headerIcon}
@@ -258,6 +282,14 @@ const makeStyles = (surfaces: any) => StyleSheet.create({
   },
   headerTextWrap: {
     flex: 1,
+  },
+  backBtn: {
+    padding: spacing.xs,
+    marginRight: spacing.xs,
+    // Pulls the chevron slightly left of the MindMate icon so the tap
+    // target sits at a comfortable thumb position, matching historyBtn
+    // mirrored across the header.
+    marginLeft: -spacing.xs,
   },
   historyBtn: {
     padding: spacing.xs,
