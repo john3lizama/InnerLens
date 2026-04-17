@@ -413,6 +413,7 @@ export default function ProfileScreen() {
           {streakData && (
             <StreakBadge
               streak={streakData.current_streak}
+              isTodayActive={streakData.is_today_active}
               onPress={() => setStreakModalVisible(true)}
             />
           )}

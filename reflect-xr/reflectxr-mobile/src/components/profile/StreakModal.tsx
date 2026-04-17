@@ -39,12 +39,22 @@ function getMotivationalText(streakData: StreakData): string {
   return 'Reflect or chat today to keep your streak alive!';
 }
 
+// Same ice-blue the badge uses for the "frozen" state; duplicated here
+// rather than exported so each component owns its own visual constants
+// and the two stay visually in sync by convention, not coupling.
+const FROZEN_TINT = '#8AB8E8';
+
 export default function StreakModal({ visible, onClose, streakData }: StreakModalProps) {
   const { surfaces, colors } = useTheme();
 
   if (!streakData) return null;
 
   const hasStreak = streakData.current_streak > 0;
+  // Mirror StreakBadge's tri-state: frozen when the user is on a streak
+  // but hasn't filled today's slot yet, so the header flame matches the
+  // badge the user just tapped to open this modal.
+  const isFrozen = hasStreak && !streakData.is_today_active;
+  const flameTint = isFrozen ? FROZEN_TINT : colors.accent;
   // Reverse so oldest day is on the left, today on the right
   const recentDays = [...streakData.recent_days].reverse();
 
@@ -60,10 +70,10 @@ export default function StreakModal({ visible, onClose, streakData }: StreakModa
           style={[styles.card, { backgroundColor: surfaces.colors.raised }]}
           onPress={() => {}}
         >
-          {/* Flame icon */}
+          {/* Flame icon — frozen tint when today's slot is still unfilled */}
           <View style={styles.iconSection}>
-            <View style={[styles.iconCircle, { backgroundColor: `${colors.accent}15` }]}>
-              <Ionicons name="flame" size={48} color={colors.accent} />
+            <View style={[styles.iconCircle, { backgroundColor: `${flameTint}15` }]}>
+              <Ionicons name="flame" size={48} color={flameTint} />
             </View>
           </View>
 
