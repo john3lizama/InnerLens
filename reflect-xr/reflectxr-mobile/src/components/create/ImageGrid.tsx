@@ -108,7 +108,7 @@ function GridItem({
           transition={300}
         />
         <Pressable onPress={handleReport} style={styles.reportBadge} hitSlop={8}>
-          <MaterialCommunityIcons name="message-alert-outline" size={16} color="rgba(255,255,255,0.8)" />
+          <MaterialCommunityIcons name="shield-alert-outline" size={16} color="rgba(255,255,255,0.8)" />
         </Pressable>
       </View>
     </AnimatedPressable>

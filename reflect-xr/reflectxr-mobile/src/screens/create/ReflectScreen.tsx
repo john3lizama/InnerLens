@@ -36,7 +36,7 @@ import Animated, {
   withTiming,
   withDelay,
 } from 'react-native-reanimated';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { File, Paths } from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
@@ -195,13 +195,13 @@ export default function ReflectScreen() {
           {/* Utility actions — small, near artwork, not prominent */}
           <View style={styles.actionRow}>
             <Pressable onPress={handleReport} style={styles.actionButton} hitSlop={12}>
-              <MaterialCommunityIcons name="message-alert-outline" size={20} color={surfaces.text.tertiary} />
+              <Feather name="flag" size={20} color={surfaces.text.tertiary} />
             </Pressable>
             <Pressable onPress={saveImageToPhone} style={styles.actionButton} hitSlop={12} disabled={savingImage}>
               {savingImage ? (
                 <ActivityIndicator size="small" color={surfaces.text.tertiary} />
               ) : (
-                <Ionicons name="download-outline" size={20} color={surfaces.text.tertiary} />
+                <Feather name="download" size={20} color={surfaces.text.tertiary} />
               )}
             </Pressable>
           </View>

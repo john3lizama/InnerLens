@@ -73,7 +73,7 @@ export default function ChatImageReveal() {
       {/* Actions */}
       <Animated.View entering={FadeIn.delay(500)} style={styles.actions}>
         <Pressable onPress={handleReport} style={styles.actionButton} hitSlop={8}>
-          <MaterialCommunityIcons name="message-alert-outline" size={20} color="rgba(255,255,255,0.7)" />
+          <MaterialCommunityIcons name="shield-alert-outline" size={20} color="rgba(255,255,255,0.7)" />
           <Text style={styles.actionText}>Report</Text>
         </Pressable>
         <Pressable onPress={handleShare} style={styles.actionButton} hitSlop={8}>
