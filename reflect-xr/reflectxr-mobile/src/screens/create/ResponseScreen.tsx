@@ -12,8 +12,12 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { StyleSheet, Text, View, ScrollView, Alert } from 'react-native';
+import {
+  StyleSheet, Text, View, ScrollView, Alert, Pressable, TextInput,
+  Modal, KeyboardAvoidingView, Platform,
+} from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   FadeIn,
   FadeInUp,
@@ -28,8 +32,9 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
 import ImageGrid from '../../components/create/ImageGrid';
-import { typography, spacing } from '../../theme';
+import { typography, spacing, borderRadius } from '../../theme';
 import { generation, fade, enterConfig } from '../../theme/motion';
 import { haptic } from '../../theme/motion';
 import { useTheme } from '../../context/ThemeContext';
@@ -56,6 +61,14 @@ export default function ResponseScreen() {
   const [loading, setLoading] = useState(true);
   const [messageIndex, setMessageIndex] = useState(0);
   const [showResults, setShowResults] = useState(false);
+  const [refinement, setRefinement] = useState('');
+  // Editable base prompt. Seeded from route params; updated when the user
+  // submits an edit from the prompt-editor modal. Subsequent regenerates
+  // and refinements both compose off this value (not the original param),
+  // so "Edit prompt" is a true replacement.
+  const [basePrompt, setBasePrompt] = useState<string>(prompt);
+  const [promptEditOpen, setPromptEditOpen] = useState(false);
+  const [editingPrompt, setEditingPrompt] = useState<string>('');
 
   // Orb animations
   const orbScale = useSharedValue(generation.breathMin);
@@ -124,9 +137,10 @@ export default function ResponseScreen() {
     return () => clearInterval(interval);
   }, [loading, textOpacity]);
 
-  const generateArt = async () => {
+  const generateArt = async (overridePrompt?: string) => {
     try {
-      const res = await generateService.generateImages(prompt, style, concept.id, 2);
+      const effective = overridePrompt ?? prompt;
+      const res = await generateService.generateImages(effective, style, concept.id, 4);
       setSessionId(res.session_id);
       setImages(res.images.map((img: any) => ({
         ...img,
@@ -158,6 +172,66 @@ export default function ResponseScreen() {
     }
     navigation.navigate('Reflect', { image: selectedImage, concept, sessionId });
   };
+
+  // Shared reset block for the three "run a new generation" actions
+  // (regenerate, regenerate-with-refinement, submit-edited-prompt).
+  const resetAndStartOrb = useCallback(() => {
+    setImages([]);
+    setSelectedId(null);
+    setSessionId(null);
+    setShowResults(false);
+    setMessageIndex(0);
+    setLoading(true);
+    orbContainerScale.value = 0;
+    orbContainerOpacity.value = 1;
+    textOpacity.value = 1;
+    orbScale.value = generation.breathMin;
+    glowOpacity.value = generation.glowMin;
+    startOrbAnimations();
+  }, [startOrbAnimations]);
+
+  // Regenerate — discard current set, run a fresh generation with the
+  // current basePrompt (which may have been edited via the prompt-editor).
+  const regenerate = useCallback(() => {
+    haptic.light();
+    resetAndStartOrb();
+    generateArt(basePrompt);
+  }, [basePrompt, resetAndStartOrb]);
+
+  // Regenerate with an appended user refinement — composed against the
+  // current basePrompt so refinements stack on top of any prompt edits.
+  // The refinement text is NOT cleared after send so the user can
+  // edit/extend it across iterations.
+  const regenerateWithRefinement = useCallback(() => {
+    const trimmed = refinement.trim();
+    if (!trimmed) return;
+    const effective = `${basePrompt}. Additional change: ${trimmed}`;
+    haptic.light();
+    resetAndStartOrb();
+    generateArt(effective);
+  }, [refinement, basePrompt, resetAndStartOrb]);
+
+  // Open / close / submit the prompt-editor modal. Submitting replaces
+  // basePrompt entirely and kicks off a fresh generation with the new text.
+  const openPromptEditor = useCallback(() => {
+    haptic.light();
+    setEditingPrompt(basePrompt);
+    setPromptEditOpen(true);
+  }, [basePrompt]);
+
+  const closePromptEditor = useCallback(() => {
+    setPromptEditOpen(false);
+  }, []);
+
+  const submitPromptEdit = useCallback(() => {
+    const trimmed = editingPrompt.trim();
+    if (!trimmed) return;
+    haptic.light();
+    setBasePrompt(trimmed);
+    setPromptEditOpen(false);
+    resetAndStartOrb();
+    generateArt(trimmed);
+  }, [editingPrompt, resetAndStartOrb]);
 
   const styles = makeStyles(surfaces);
 
@@ -233,6 +307,7 @@ export default function ResponseScreen() {
           style={styles.container}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           <Animated.View entering={FadeIn.duration(fade.slow)}>
             <Text style={styles.title}>What emerged</Text>
@@ -249,13 +324,82 @@ export default function ResponseScreen() {
             />
           </Animated.View>
 
+          {/* Refinement input — type a change to apply on top of the original prompt. */}
+          <Animated.View entering={FadeIn.duration(fade.slow).delay(generation.emerge.delay + 150)}>
+            <View style={styles.refinementRow}>
+              <TextInput
+                style={styles.refinementInput}
+                value={refinement}
+                onChangeText={setRefinement}
+                placeholder="Describe a change…"
+                placeholderTextColor={surfaces.text.tertiary}
+                multiline
+                maxLength={200}
+                returnKeyType="send"
+                onSubmitEditing={regenerateWithRefinement}
+                blurOnSubmit
+              />
+              <Pressable
+                onPress={regenerateWithRefinement}
+                disabled={!refinement.trim()}
+                style={[
+                  styles.refinementSend,
+                  !refinement.trim() && styles.refinementSendDisabled,
+                ]}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Apply this change and regenerate"
+              >
+                <Ionicons
+                  name="arrow-up"
+                  size={18}
+                  color={refinement.trim() ? '#FFFFFF' : surfaces.text.tertiary}
+                />
+              </Pressable>
+            </View>
+          </Animated.View>
+
+          {/* Regenerate — reshuffle with the current base prompt. */}
+          <Animated.View entering={FadeIn.duration(fade.slow).delay(generation.emerge.delay + 200)}>
+            <Pressable
+              onPress={regenerate}
+              style={({ pressed }) => [
+                styles.tryAgainButton,
+                pressed && { opacity: 0.6 },
+              ]}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Generate a new set of images"
+            >
+              <Ionicons name="refresh" size={16} color={surfaces.text.secondary} />
+              <Text style={styles.tryAgainText}>Regenerate</Text>
+            </Pressable>
+          </Animated.View>
+
+          {/* Edit prompt — replace the base prompt entirely, then regenerate. */}
+          <Animated.View entering={FadeIn.duration(fade.slow).delay(generation.emerge.delay + 250)}>
+            <Pressable
+              onPress={openPromptEditor}
+              style={({ pressed }) => [
+                styles.editPromptButton,
+                pressed && { opacity: 0.6 },
+              ]}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Edit the prompt that generated these images"
+            >
+              <Ionicons name="pencil-outline" size={16} color={surfaces.text.secondary} />
+              <Text style={styles.tryAgainText}>Edit prompt</Text>
+            </Pressable>
+          </Animated.View>
+
           {selectedId && (
             <Animated.View
               entering={FadeInUp.duration(enterConfig.content.duration)}
               style={styles.footer}
             >
               <Button
-                title="Sit with this"
+                title="Reflect"
                 onPress={handleReflect}
                 fullWidth
               />
@@ -263,11 +407,66 @@ export default function ResponseScreen() {
           )}
         </ScrollView>
       )}
+
+      {/* Prompt editor — bottom sheet for replacing the base prompt. */}
+      <Modal
+        visible={promptEditOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closePromptEditor}
+      >
+        <SafeAreaWrapper>
+          <KeyboardAvoidingView
+            style={styles.flex}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <View style={styles.editorContainer}>
+              <View style={styles.editorHeader}>
+                <Pressable
+                  onPress={closePromptEditor}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel edit"
+                >
+                  <Text style={styles.editorCancel}>Cancel</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.editorTitle}>Edit prompt</Text>
+              <Text style={styles.editorSubtitle}>
+                Rewrite what generated these.
+              </Text>
+              <Input
+                value={editingPrompt}
+                onChangeText={setEditingPrompt}
+                multiline
+                autoFocus
+                containerStyle={styles.editorInput}
+                placeholder="Describe what you want to see..."
+              />
+              <View style={styles.editorFooter}>
+                <Button
+                  title="Submit"
+                  onPress={submitPromptEdit}
+                  disabled={
+                    editingPrompt.trim().length === 0 ||
+                    editingPrompt.trim() === basePrompt.trim()
+                  }
+                  fullWidth
+                  hapticWeight="medium"
+                />
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </SafeAreaWrapper>
+      </Modal>
     </SafeAreaWrapper>
   );
 }
 
 const makeStyles = (surfaces: any) => StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },
@@ -304,5 +503,88 @@ const makeStyles = (surfaces: any) => StyleSheet.create({
   footer: {
     paddingTop: spacing.lg,
     paddingBottom: 120,
+  },
+  tryAgainButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.md,
+    marginTop: spacing.lg,
+  },
+  editPromptButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  tryAgainText: {
+    ...typography.body,
+    color: surfaces.text.secondary,
+    fontWeight: '500',
+  },
+  // Prompt-editor modal
+  editorContainer: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+  },
+  editorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingVertical: spacing.sm,
+  },
+  editorCancel: {
+    ...typography.body,
+    color: surfaces.text.secondary,
+  },
+  editorTitle: {
+    ...typography.h2,
+    color: surfaces.text.primary,
+    marginTop: spacing.sm,
+  },
+  editorSubtitle: {
+    ...typography.bodySmall,
+    color: surfaces.text.secondary,
+    marginTop: spacing.xs,
+    marginBottom: spacing.lg,
+  },
+  editorInput: {
+    flex: 1,
+  },
+  editorFooter: {
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
+  },
+  refinementRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    backgroundColor: surfaces.colors.input,
+    borderRadius: borderRadius.xxl,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.xs,
+    paddingVertical: spacing.xs,
+    marginTop: spacing.lg,
+  },
+  refinementInput: {
+    flex: 1,
+    ...typography.body,
+    color: surfaces.text.primary,
+    maxHeight: 100,
+    paddingVertical: spacing.sm,
+  },
+  refinementSend: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#6C63FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  refinementSendDisabled: {
+    backgroundColor: surfaces.colors.ground,
   },
 });
