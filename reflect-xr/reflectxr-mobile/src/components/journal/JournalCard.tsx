@@ -56,10 +56,12 @@ export default function JournalCard({
         />
       ) : null}
       <View style={styles.content}>
-        <Text style={styles.date}>{formatRelativeDate(createdAt)}</Text>
-        <Text style={styles.text} numberOfLines={2}>
-          {content}
-        </Text>
+        <View style={styles.topRow}>
+          <Text style={styles.text} numberOfLines={2}>
+            {content}
+          </Text>
+          <Text style={styles.date}>{formatRelativeDate(createdAt)}</Text>
+        </View>
         {emotionTags.length > 0 && (
           <View style={styles.tags}>
             {emotionTags.slice(0, 2).map((tag) => (
@@ -83,24 +85,35 @@ const makeStyles = (surfaces: any) => StyleSheet.create({
   },
   image: {
     width: '100%',
-    height: 180,
+    height: 160,
   },
   content: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
   },
   date: {
     ...typography.caption,
+    fontSize: 11,
+    lineHeight: 14,
     color: surfaces.text.tertiary,
-    marginBottom: spacing.xs,
+    marginTop: 2,
   },
   text: {
     ...typography.bodySmall,
     color: surfaces.text.primary,
-    marginBottom: spacing.sm,
+    flex: 1,
   },
   tags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.xs,
+    marginBottom: spacing.xs,
   },
 });
