@@ -1,7 +1,7 @@
 """
 safety.py — Content safety checks for ReflectXR.
 
-Two layers of protection:
+THREE layers of protection:
 
 1. check_crisis(text) — FAST, runs BEFORE any AI call.
    Scans user input for crisis keywords (suicide, self-harm, etc.)
@@ -13,18 +13,70 @@ Two layers of protection:
    Used before sending prompts to DALL-E to prevent generating
    inappropriate images. The Moderation API is FREE (no token cost).
 
-WHY TWO LAYERS?
+3. check_image_safety(image_bytes) — Calls AWS Rekognition.
+   Scans generated images AFTER DALL-E returns them, BEFORE saving
+   to S3. Catches any inappropriate visual content that slipped
+   through the prompt-level filters.
+   Uses the same AWS credentials already in .env (no new key needed).
+
+WHY THREE LAYERS?
 - Crisis detection is too important to depend on an external API.
   If OpenAI is down, crisis keywords still get caught instantly.
 - Moderation catches subtler policy violations that keywords miss.
-  Together they form a defense-in-depth safety system.
+- Rekognition is a final image-level backstop — even a clean prompt
+  can occasionally produce unexpected output from DALL-E. This ensures
+  nothing inappropriate ever gets saved to S3 or shown to users.
 """
 
+import boto3
 from openai import AsyncOpenAI
 from app.config import settings
 
 # ── OpenAI client (reused across calls) ─────────────────────────────────
 client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=30.0)
+
+# ── AWS Rekognition client ───────────────────────────────────────────────
+# Uses the same AWS credentials already in .env — no new key needed.
+rekognition_client = boto3.client(
+    "rekognition",
+    region_name="us-east-1",
+    aws_access_key_id=settings.S3_ACCESS_KEY_ID,
+    aws_secret_access_key=settings.S3_SECRET_ACCESS_KEY,
+)
+
+# Rekognition moderation labels we block.
+# Full list: https://docs.aws.amazon.com/rekognition/latest/dg/moderation.html
+# We block anything explicit or suggestive — violence is allowed at low
+# confidence since some emotional art may include abstract dark themes.
+BLOCKED_LABELS = {
+    "Explicit Nudity",
+    "Nudity",
+    "Graphic Male Nudity",
+    "Graphic Female Nudity",
+    "Sexual Activity",
+    "Illustrated Explicit Nudity",
+    "Adult Toys",
+    "Suggestive",
+    "Female Swimwear Or Underwear",
+    "Male Swimwear Or Underwear",
+    "Partial Nudity",
+    "Barechested Male",
+    "Revealing Clothes",
+    "Graphic Violence Or Gore",
+    "Physical Violence",
+    "Weapon Violence",
+    "Weapons",
+    "Self Injury",
+    "Hate Symbols",
+    "Nazi Party",
+    "White Supremacy",
+    "Extremist",
+}
+
+# Minimum confidence threshold to block a label (0-100).
+# 70 = block if Rekognition is 70%+ confident the label applies.
+# Lower = more strict, higher = more lenient.
+CONFIDENCE_THRESHOLD = 70.0
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -112,3 +164,65 @@ async def check_moderation(text: str) -> dict:
         # Fail open — if moderation API is down, let DALL-E's own
         # content filter handle it. Better than blocking all image gen.
         return {"flagged": False, "categories": None, "message": None}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# LAYER 3: AWS Rekognition Image Safety (post-generation visual scan)
+# ══════════════════════════════════════════════════════════════════════════
+
+def check_image_safety(image_bytes: bytes) -> dict:
+    """
+    Scan generated image bytes for inappropriate visual content using
+    AWS Rekognition's content moderation API.
+
+    This runs AFTER DALL-E generates an image, BEFORE it gets saved
+    to S3. Acts as a final visual backstop — even clean prompts can
+    occasionally produce unexpected output.
+
+    NOTE: This is a synchronous call (boto3 doesn't have async support).
+    It's fast enough (~200-400ms) that it won't noticeably slow down
+    the pipeline. If needed, wrap in asyncio.to_thread() for async context.
+
+    Args:
+        image_bytes: Raw PNG/JPEG bytes of the generated image
+
+    Returns:
+        {
+            "safe": bool,           # True if image is safe to save
+            "flagged_labels": [...], # Labels that triggered the block
+            "message": str | None   # User-friendly message if flagged
+        }
+
+    If Rekognition is unavailable, we fail open (return safe=True)
+    so DALL-E failures don't cascade into a broken user experience.
+    The two upstream layers (crisis + moderation) still provide coverage.
+    """
+    try:
+        response = rekognition_client.detect_moderation_labels(
+            Image={"Bytes": image_bytes},
+            MinConfidence=CONFIDENCE_THRESHOLD,
+        )
+
+        flagged = [
+            label["Name"]
+            for label in response.get("ModerationLabels", [])
+            if label["Name"] in BLOCKED_LABELS
+        ]
+
+        if flagged:
+            return {
+                "safe": False,
+                "flagged_labels": flagged,
+                "message": (
+                    "The generated image was flagged by our safety system "
+                    "and cannot be saved. Please try a different prompt or style."
+                ),
+            }
+
+        return {"safe": True, "flagged_labels": [], "message": None}
+
+    except Exception as e:
+        # Fail open — if Rekognition is down, let the image through.
+        # Upstream filters (crisis keywords + OpenAI moderation) still apply.
+        print(f"[safety] Rekognition check failed (fail-open): {e}")
+        return {"safe": True, "flagged_labels": [], "message": None}

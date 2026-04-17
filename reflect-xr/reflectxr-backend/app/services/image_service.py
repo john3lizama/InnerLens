@@ -11,8 +11,15 @@ A set of 4 = ~$0.16. Budget accordingly.
 KEY DALL-E 3 LIMITATION:
 DALL-E 3 only supports n=1 per API call (unlike DALL-E 2).
 To get 4 images, we make 4 separate API calls.
+
+SAFETY PIPELINE (3 layers):
+1. check_moderation(prompt)     — before DALL-E (text check, free)
+2. DALL-E generates image
+3. check_image_safety(bytes)    — after DALL-E (visual check, Rekognition)
+4. Upload to S3 only if safe
 """
 
+import asyncio
 import io
 import uuid
 import httpx
@@ -24,7 +31,7 @@ from app.config import settings
 from app.models.session import Session
 from app.models.generated_image import GeneratedImage
 from app.utils.storage import upload_image
-from app.ai.safety import check_moderation
+from app.ai.safety import check_moderation, check_image_safety
 
 # ── OpenAI client ────────────────────────────────────────────────────────
 client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
@@ -48,13 +55,11 @@ async def generate_and_store_images(
     count: int = 4,
 ) -> dict:
     """
-    Full pipeline: moderation -> DALL-E -> S3 upload -> DB insert.
+    Full pipeline: moderation -> DALL-E -> Rekognition -> S3 upload -> DB insert.
 
     Returns: { session_id: uuid, images: [GeneratedImageResponse, ...] }
     """
-    # ── Step 1: Safety check ─────────────────────────────────────────────
-    # Run the prompt through OpenAI's Moderation API before generating.
-    # This is FREE and catches inappropriate content before it hits DALL-E.
+    # ── Step 1: Safety check on prompt ──────────────────────────────────
     moderation_result = await check_moderation(prompt)
     if moderation_result["flagged"]:
         raise HTTPException(
@@ -69,55 +74,91 @@ async def generate_and_store_images(
     await db.commit()
     await db.refresh(session)
 
-    # ── Step 3: Generate images ──────────────────────────────────────────
-    # Combine the user's prompt with their chosen style
+    # ── Step 3: Generate images concurrently ─────────────────────────────
+    # Fire all DALL-E calls at the same time instead of sequentially.
+    # asyncio.gather runs them in parallel, cutting wait time from ~40s to ~10s.
     full_prompt = f"{prompt} Style: {style}."
+
+    tasks = [_generate_single_image(full_prompt, session.id) for _ in range(count)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # ── Step 4: Save successful results to DB ────────────────────────────
     images = []
-
-    for _ in range(count):
-        # Call DALL-E 3 (n=1 per call — that's all it supports)
-        response = await client.images.generate(
-            model="dall-e-3",
-            prompt=full_prompt,
-            size="1024x1024",
-            quality="standard",
-            n=1,
-        )
-
-        # DALL-E returns a temporary URL — download the actual image bytes
-        temp_url = response.data[0].url
-        revised_prompt = response.data[0].revised_prompt
-
-        async with httpx.AsyncClient() as http:
-            img_response = await http.get(temp_url)
-            image_bytes = img_response.content
-
-        # ── Step 4: Upload full image and thumbnail to S3 ────────────────
-        image_id = uuid.uuid4()
-        s3_key = f"generated/{session.id}/{image_id}.png"
-        image_url = await upload_image(image_bytes, s3_key)
-
-        thumb_bytes = _make_thumbnail(image_bytes)
-        thumb_key = f"thumbnails/{session.id}/{image_id}.png"
-        thumbnail_url = await upload_image(thumb_bytes, thumb_key)
-
-        # ── Step 5: Save to database ─────────────────────────────────────
+    for result in results:
+        if isinstance(result, Exception):
+            print(f"[image_service] Image generation failed: {result}")
+            continue
         gen_image = GeneratedImage(
-            id=image_id,
+            id=result["image_id"],
             session_id=session.id,
-            image_url=image_url,
-            thumbnail_url=thumbnail_url,
-            prompt_used=revised_prompt,
+            image_url=result["image_url"],
+            thumbnail_url=result["thumbnail_url"],
+            prompt_used=result["revised_prompt"],
             style_used=style,
         )
         db.add(gen_image)
         images.append(gen_image)
+
+    if not images:
+        raise HTTPException(
+            status_code=500,
+            detail="All image generation attempts failed. Please try again.",
+        )
 
     await db.commit()
 
     return {
         "session_id": session.id,
         "images": images,
+    }
+
+
+async def _generate_single_image(full_prompt: str, session_id: uuid.UUID) -> dict:
+    """
+    Generate one image: DALL-E call -> Rekognition scan -> S3 upload.
+
+    Returns dict with image_id, image_url, thumbnail_url, revised_prompt.
+    Raises an exception if any step fails (caller handles via gather).
+    """
+    # DALL-E 3 call
+    response = await client.images.generate(
+        model="dall-e-3",
+        prompt=full_prompt,
+        size="1024x1024",
+        quality="standard",
+        n=1,
+    )
+
+    temp_url = response.data[0].url
+    revised_prompt = response.data[0].revised_prompt
+
+    # Download image bytes
+    async with httpx.AsyncClient() as http:
+        img_response = await http.get(temp_url)
+        image_bytes = img_response.content
+
+    # Layer 3: Rekognition visual safety scan
+    # Run in thread pool so sync boto3 call doesn't block the event loop
+    safety_result = await asyncio.to_thread(check_image_safety, image_bytes)
+    if not safety_result["safe"]:
+        raise Exception(
+            f"Image flagged by Rekognition: {safety_result['flagged_labels']}"
+        )
+
+    # Upload to S3
+    image_id = uuid.uuid4()
+    s3_key = f"generated/{session_id}/{image_id}.png"
+    image_url = await upload_image(image_bytes, s3_key)
+
+    thumb_bytes = _make_thumbnail(image_bytes)
+    thumb_key = f"thumbnails/{session_id}/{image_id}.png"
+    thumbnail_url = await upload_image(thumb_bytes, thumb_key)
+
+    return {
+        "image_id": image_id,
+        "image_url": image_url,
+        "thumbnail_url": thumbnail_url,
+        "revised_prompt": revised_prompt,
     }
 
 
@@ -129,18 +170,14 @@ async def select_image(
     """
     from sqlalchemy import update
 
-    # Deselect all images in this session
     await db.execute(
         update(GeneratedImage)
         .where(GeneratedImage.session_id == session_id)
         .values(is_selected=False)
     )
-
-    # Select the chosen one
     await db.execute(
         update(GeneratedImage)
         .where(GeneratedImage.id == image_id)
         .values(is_selected=True)
     )
-
     await db.commit()
