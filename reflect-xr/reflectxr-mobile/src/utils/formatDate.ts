@@ -45,8 +45,8 @@ export function formatRelativeDate(dateString: string): string {
 export function formatFullDate(dateString: string): string {
   const date = new Date(normalizeTimestamp(dateString));
   return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
+    weekday: 'short',
+    month: 'short',
     day: 'numeric',
     year: 'numeric',
   });
