@@ -6,6 +6,13 @@ import { AuthProvider } from './src/context/AuthContext';
 import { ThemeProvider } from './src/context/ThemeContext';
 import { MindMateProvider } from './src/context/MindMateContext';
 import AppNavigator from './src/navigation/AppNavigator';
+import { setupForegroundHandler } from './src/services/notificationService';
+
+// Install the notification handler ONCE at module load — before React
+// mounts anything — so incoming pushes don't get dropped in the brief
+// window between first render and the usePushNotifications hook
+// subscribing from inside the nav tree. Idempotent per-process.
+setupForegroundHandler();
 
 export default function App() {
   return (

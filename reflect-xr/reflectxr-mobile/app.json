@@ -17,6 +17,9 @@
       "infoPlist": {
         "LSApplicationQueriesSchemes": [
           "alexa"
+        ],
+        "UIBackgroundModes": [
+          "remote-notification"
         ]
       }
     },
@@ -24,7 +27,10 @@
       "adaptiveIcon": {
         "backgroundColor": "#FAFAF8"
       },
-      "package": "com.innerlens.reflectxr"
+      "package": "com.innerlens.reflectxr",
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ]
     },
     "plugins": [
       "expo-asset",
@@ -34,6 +40,12 @@
         {
           "photosPermission": "Allow ReflectXR to save artwork to your photo library.",
           "savePhotosPermission": "Allow ReflectXR to save artwork to your photo library."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#6C63FF"
         }
       ]
     ]

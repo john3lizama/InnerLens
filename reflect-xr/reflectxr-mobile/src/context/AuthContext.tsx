@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User } from '../types/user';
 import * as authService from '../services/authService';
 import { authEventEmitter } from '../services/api';
+import { revokeCurrentPushToken } from '../services/notificationService';
 
 const TOKEN_KEY = 'auth_token';
 const REFRESH_KEY = 'refresh_token';
@@ -118,6 +119,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Best-effort server-side revoke so pushes targeting the
+    // just-signed-out user stop on this device. We await it rather
+    // than fire-and-forget so the JWT is still valid when the DELETE
+    // call goes out — the service itself swallows any error.
+    await revokeCurrentPushToken();
     await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_KEY]);
     setState({ user: null, token: null, isAuthenticated: false, isLoading: false });
   }, []);

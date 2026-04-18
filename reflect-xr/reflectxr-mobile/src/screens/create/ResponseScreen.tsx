@@ -49,11 +49,22 @@ const LOADING_MESSAGES = [
   'Almost there\u2026',
 ];
 
+// Shown instead of the rotating copy when the backend falls back to the
+// async retry worker (both providers failed the fast path). The message
+// mirrors the push we send when the retry eventually succeeds.
+const EXTENDED_WAIT_MESSAGE =
+  "Image generation is taking longer than expected. We'll notify you once the image is generated.";
+
+const POLL_INTERVAL_MS = 10_000;
+
 export default function ResponseScreen() {
   const navigation = useNavigation() as any;
   const route = useRoute() as any;
   const { colors, surfaces } = useTheme();
-  const { prompt, style, concept } = route.params;
+  // `jobId` is only present when the user lands on this screen from a
+  // notification tap (deep-link). In that case we skip the initial
+  // generate call and go straight into polling.
+  const { prompt, style, concept, jobId: initialJobId } = route.params ?? {};
 
   const [images, setImages] = useState<GeneratedImage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -62,6 +73,14 @@ export default function ResponseScreen() {
   const [messageIndex, setMessageIndex] = useState(0);
   const [showResults, setShowResults] = useState(false);
   const [refinement, setRefinement] = useState('');
+  // extendedWait = true once we learn both providers failed on the fast
+  // path (200 → false, 202 → true). Freezes the rotating copy on the
+  // static "we'll notify you" line and kicks off the poller.
+  const [extendedWait, setExtendedWait] = useState<boolean>(!!initialJobId);
+  const [activeJobId, setActiveJobId] = useState<string | null>(initialJobId ?? null);
+  // setInterval handle for the poller — held in a ref so we can clear it
+  // from anywhere in the component without re-subscribing effects.
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Editable base prompt. Seeded from route params; updated when the user
   // submits an edit from the prompt-editor modal. Subsequent regenerates
   // and refinements both compose off this value (not the original param),
@@ -119,12 +138,23 @@ export default function ResponseScreen() {
   useEffect(() => {
     haptic.medium();
     startOrbAnimations();
-    generateArt();
+    if (initialJobId) {
+      // Deep-link from notification tap: don't kick off a fresh generation,
+      // just resume polling for the pre-existing job.
+      startPolling(initialJobId);
+    } else {
+      generateArt();
+    }
+    // Cleanup: make sure we don't leave a poller running if the screen
+    // unmounts mid-wait (user hits back during extended wait).
+    return () => stopPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Rotate loading messages
+  // Rotate loading messages — frozen to the static "extended wait" line
+  // once the backend escalates to async.
   useEffect(() => {
-    if (!loading) return;
+    if (!loading || extendedWait) return;
     const interval = setInterval(() => {
       textOpacity.value = withSequence(
         withTiming(0, { duration: generation.textFadeDuration }),
@@ -135,29 +165,113 @@ export default function ResponseScreen() {
       }, generation.textFadeDuration);
     }, generation.textRotateInterval);
     return () => clearInterval(interval);
-  }, [loading, textOpacity]);
+  }, [loading, extendedWait, textOpacity]);
+
+  // Gentle fade when the copy flips from the rotating line to the
+  // static "we'll notify you" message.
+  useEffect(() => {
+    if (!extendedWait) return;
+    textOpacity.value = withSequence(
+      withTiming(0, { duration: generation.textFadeDuration }),
+      withTiming(1, { duration: generation.textFadeDuration }),
+    );
+  }, [extendedWait, textOpacity]);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const onImagesReady = useCallback(
+    (payload: { session_id: string; images: any[] }) => {
+      setSessionId(payload.session_id);
+      setImages(
+        payload.images.map((img: any) => ({
+          ...img,
+          is_selected: false,
+          source: 'concept' as const,
+          created_at: new Date().toISOString(),
+        })),
+      );
+      haptic.heavy();
+      setLoading(false);
+      setExtendedWait(false);
+      setActiveJobId(null);
+      stopPolling();
+      dissolveOrb();
+    },
+    [dissolveOrb, stopPolling],
+  );
+
+  const onGenerationFailed = useCallback(
+    (message: string) => {
+      stopPolling();
+      setActiveJobId(null);
+      Alert.alert(
+        'Generation Failed',
+        message || 'Could not generate images. Please try again.',
+        [{ text: 'Go Back', onPress: () => navigation.goBack() }],
+      );
+    },
+    [navigation, stopPolling],
+  );
+
+  const startPolling = useCallback(
+    (jobId: string) => {
+      // Make sure we surface the extended-wait UI even if polling started
+      // from the deep-link path (where we never saw a 202).
+      setExtendedWait(true);
+      setActiveJobId(jobId);
+      stopPolling();
+
+      const tick = async () => {
+        try {
+          const result = await generateService.pollJobStatus(jobId);
+          if (result.kind === 'ready') {
+            onImagesReady({
+              session_id: result.session_id,
+              images: result.images,
+            });
+          } else if (result.kind === 'failed') {
+            onGenerationFailed(result.error);
+          }
+          // 'pending' → keep polling
+        } catch (err) {
+          // Transient network errors are fine — the notification tap
+          // path is still a safety net. Just log and keep trying.
+          console.warn('pollJobStatus failed, will retry:', err);
+        }
+      };
+
+      // Fire once immediately so the deep-link path doesn't wait 10s
+      // to discover the job already succeeded.
+      tick();
+      pollTimerRef.current = setInterval(tick, POLL_INTERVAL_MS);
+    },
+    [onImagesReady, onGenerationFailed, stopPolling],
+  );
 
   const generateArt = async (overridePrompt?: string) => {
     try {
       const effective = overridePrompt ?? prompt;
-      const res = await generateService.generateImages(effective, style, concept.id, 4);
-      setSessionId(res.session_id);
-      setImages(res.images.map((img: any) => ({
-        ...img,
-        is_selected: false,
-        source: 'concept' as const,
-        created_at: new Date().toISOString(),
-      })));
-      haptic.heavy();
+      const res = await generateService.generateImages(
+        effective,
+        style,
+        concept.id,
+        4,
+      );
+      if (res.kind === 'ready') {
+        onImagesReady({ session_id: res.session_id, images: res.images });
+      } else {
+        // 202 pending — swap copy, keep the orb, start the poller.
+        setExtendedWait(true);
+        startPolling(res.job_id);
+      }
     } catch (err) {
       console.error('Image generation failed:', err);
-      Alert.alert('Generation Failed', 'Could not generate images. Please try again.', [
-        { text: 'Go Back', onPress: () => navigation.goBack() },
-      ]);
-      return;
-    } finally {
-      setLoading(false);
-      dissolveOrb();
+      onGenerationFailed('Could not generate images. Please try again.');
     }
   };
 
@@ -176,19 +290,24 @@ export default function ResponseScreen() {
   // Shared reset block for the three "run a new generation" actions
   // (regenerate, regenerate-with-refinement, submit-edited-prompt).
   const resetAndStartOrb = useCallback(() => {
+    // Any in-flight poller belongs to a previous attempt — cancel it so
+    // a late success doesn't land in the middle of a fresh generation.
+    stopPolling();
     setImages([]);
     setSelectedId(null);
     setSessionId(null);
     setShowResults(false);
     setMessageIndex(0);
     setLoading(true);
+    setExtendedWait(false);
+    setActiveJobId(null);
     orbContainerScale.value = 0;
     orbContainerOpacity.value = 1;
     textOpacity.value = 1;
     orbScale.value = generation.breathMin;
     glowOpacity.value = generation.glowMin;
     startOrbAnimations();
-  }, [startOrbAnimations]);
+  }, [startOrbAnimations, stopPolling]);
 
   // Regenerate — discard current set, run a fresh generation with the
   // current basePrompt (which may have been edited via the prompt-editor).
@@ -292,11 +411,18 @@ export default function ResponseScreen() {
             </Animated.View>
           </Animated.View>
 
-          {/* Rotating text */}
+          {/* Rotating text — frozen to a static "we'll notify you" line
+              once the backend has escalated to async retry. */}
           <Animated.Text
-            style={[styles.loadingMessage, textAnimatedStyle]}
+            style={[
+              styles.loadingMessage,
+              extendedWait && styles.extendedWaitMessage,
+              textAnimatedStyle,
+            ]}
           >
-            {LOADING_MESSAGES[messageIndex]}
+            {extendedWait
+              ? EXTENDED_WAIT_MESSAGE
+              : LOADING_MESSAGES[messageIndex]}
           </Animated.Text>
         </View>
       )}
@@ -489,6 +615,14 @@ const makeStyles = (surfaces: any) => StyleSheet.create({
     color: surfaces.text.secondary,
     marginTop: spacing.xl,
     textAlign: 'center',
+  },
+  // Extended-wait copy is longer than the rotating lines — give it
+  // breathing room on the horizontal and drop the italic so the
+  // message reads like a direct system note, not another mood line.
+  extendedWaitMessage: {
+    fontStyle: 'normal',
+    paddingHorizontal: spacing.xl,
+    lineHeight: 22,
   },
   title: {
     ...typography.h2,

@@ -5,11 +5,23 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../context/ThemeContext';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 import AuthStack from './AuthStack';
 import MainTabs from './MainTabs';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+/**
+ * Thin bridge component so `usePushNotifications` can call `useNavigation()`
+ * — the hook needs to live *inside* the NavigationContainer tree but
+ * outside any single screen, because the tap-to-deep-link handler has
+ * to survive screen transitions. Renders nothing.
+ */
+function NotificationBridge() {
+  usePushNotifications();
+  return null;
+}
 
 export default function AppNavigator() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -37,6 +49,10 @@ export default function AppNavigator() {
 
   return (
     <NavigationContainer theme={navTheme}>
+      {/* Inside the container so useNavigation() resolves; mounts for
+          both auth states so we can also handle taps that arrive while
+          the user happens to be signed out (no-op in that case). */}
+      <NotificationBridge />
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
         {isAuthenticated ? (
           <Stack.Screen name="Main" component={MainTabs} />
