@@ -2,7 +2,9 @@
  * ProfileScreen — Redesigned.
  *
  * - Title: user's display name
- * - Tappable avatar: upload profile picture or show initials with edit badge
+ * - Avatar: read-only portrait. Upload / remove both live behind the pencil
+ *   next to the name (Edit Profile modal) — there is no longer a tap target
+ *   on the avatar itself.
  * - Tappable email: two-step verification (enter new email → enter 4-digit code)
  * - Notifications: opens native app settings
  * - Activity grid, single settings surface, quiet logout
@@ -110,7 +112,6 @@ export default function ProfileScreen() {
 
   const [reflectionCount, setReflectionCount] = useState(0);
   const [conversationCount, setConversationCount] = useState(0);
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [streakData, setStreakData] = useState<StreakData | null>(null);
   const [streakModalVisible, setStreakModalVisible] = useState(false);
 
@@ -156,43 +157,6 @@ export default function ProfileScreen() {
       { text: 'Sign Out', style: 'destructive', onPress: logout },
     ]);
   };
-
-  // ── Avatar tap → image picker ─────────────────────────────────────────
-  const handleAvatarPress = useCallback(async () => {
-    haptic.selection();
-
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'Permission Needed',
-        'Please allow access to your photo library to set a profile picture.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: openAppSettings },
-        ]
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (result.canceled || !result.assets?.[0]) return;
-
-    setIsUploadingImage(true);
-    try {
-      await uploadProfileImage(result.assets[0].uri);
-      haptic.medium();
-    } catch {
-      Alert.alert('Upload Failed', 'Could not upload your photo. Please try again.');
-    } finally {
-      setIsUploadingImage(false);
-    }
-  }, [uploadProfileImage]);
 
   // ── Unified Edit Profile flow ─────────────────────────────────────────
   const openEditModal = () => {
@@ -422,12 +386,12 @@ export default function ProfileScreen() {
         {/* Avatar + Email + Stats */}
         <Animated.View entering={FadeInUp.duration(enterConfig.content.duration)}>
           <View style={styles.avatarSection}>
-            {/* Tappable Avatar — single tap uploads; entire circle + badge are one target */}
-            <Pressable onPress={handleAvatarPress} hitSlop={8} style={styles.avatarWrapper}>
+            {/* Avatar — read-only. Upload and delete both live behind the
+                pencil next to the display name (Edit Profile modal); the
+                avatar itself is no longer a tap target. */}
+            <View style={styles.avatarWrapper}>
               <View style={styles.avatar}>
-                {isUploadingImage ? (
-                  <ActivityIndicator size="small" color="#6C63FF" />
-                ) : hasProfileImage ? (
+                {hasProfileImage ? (
                   <Image
                     source={{ uri: user!.profile_image_url }}
                     style={styles.avatarImage}
@@ -438,11 +402,7 @@ export default function ProfileScreen() {
                   </Text>
                 )}
               </View>
-              {/* Edit badge */}
-              <View style={[styles.editBadge, { backgroundColor: surfaces.colors.ground }]}>
-                <Ionicons name="camera" size={14} color="#6C63FF" />
-              </View>
-            </Pressable>
+            </View>
 
             {/* Tappable Name — opens unified Edit Profile modal */}
             <Pressable onPress={openEditModal} hitSlop={8} style={styles.nameRow}>
@@ -829,18 +789,6 @@ const makeStyles = (surfaces: any) =>
       fontSize: 30,
       fontWeight: '600' as const,
       color: '#6C63FF',
-    },
-    editBadge: {
-      position: 'absolute',
-      bottom: 0,
-      right: 0,
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 2,
-      borderColor: surfaces.colors.canvas,
     },
     emailRow: {
       flexDirection: 'row',
