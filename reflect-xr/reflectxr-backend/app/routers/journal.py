@@ -16,7 +16,7 @@ from app.models.generated_image import GeneratedImage
 from app.schemas.journal import (
     JournalCreateRequest, JournalCreateResponse,
     JournalListResponse, JournalListItem, JournalImageSummary,
-    JournalDetailResponse, JournalFavoriteUpdate,
+    JournalDetailResponse, JournalFavoriteUpdate, JournalContentUpdate,
 )
 from app.services.auth_service import get_current_user
 from app.services.emotion_service import extract_emotions
@@ -168,6 +168,96 @@ async def get_journal_entry(
         word_count=entry.word_count,
         is_favorite=entry.is_favorite,
     )
+
+
+@router.patch("/{entry_id}", response_model=JournalDetailResponse)
+async def update_journal_entry(
+    entry_id: UUID,
+    payload: JournalContentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    PATCH /journal/:id — Edit the reflection text of an existing entry.
+
+    Steps mirror POST /journal so the stored state stays coherent:
+    1. Recount words from the new content.
+    2. Re-run emotion extraction (the tags were derived from the old text).
+    3. Persist + return the full detail, same shape as GET /journal/:id so
+       the mobile client can replace its local copy wholesale.
+
+    Returns 404 (not 403) if the entry belongs to another user, so we
+    don't leak existence across accounts.
+    """
+    result = await db.execute(
+        select(JournalEntry).where(
+            JournalEntry.id == entry_id,
+            JournalEntry.user_id == current_user.id,
+        )
+    )
+    entry = result.scalar_one_or_none()
+
+    if not entry:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+
+    # Rebuild the derived fields — emotion extraction is cheap enough
+    # to run synchronously here (same as the create path).
+    entry.content = payload.content
+    entry.word_count = len(payload.content.split())
+    entry.emotion_tags = await extract_emotions(payload.content)
+
+    await db.commit()
+    await db.refresh(entry)
+
+    # Load the associated image for the response body
+    img_result = await db.execute(
+        select(GeneratedImage).where(GeneratedImage.id == entry.image_id)
+    )
+    image = img_result.scalar_one_or_none()
+
+    return JournalDetailResponse(
+        id=entry.id,
+        content=entry.content,
+        emotion_tags=entry.emotion_tags or [],
+        image=JournalImageSummary(
+            id=image.id,
+            image_url=image.image_url,
+            thumbnail_url=image.thumbnail_url,
+        ) if image else None,
+        reflection_prompt_used=entry.reflection_prompt_used,
+        created_at=entry.created_at,
+        word_count=entry.word_count,
+        is_favorite=entry.is_favorite,
+    )
+
+
+@router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_journal_entry(
+    entry_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    DELETE /journal/:id — Remove a journal entry permanently.
+
+    Scoped to the caller — 404 on someone else's id (no existence leak).
+    Returns 204 No Content on success; the mobile client treats that as
+    "entry is gone, drop it from the list".
+    """
+    result = await db.execute(
+        select(JournalEntry).where(
+            JournalEntry.id == entry_id,
+            JournalEntry.user_id == current_user.id,
+        )
+    )
+    entry = result.scalar_one_or_none()
+
+    if not entry:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+
+    await db.delete(entry)
+    await db.commit()
+    # No body — 204.
 
 
 @router.patch("/{entry_id}/favorite", response_model=JournalDetailResponse)

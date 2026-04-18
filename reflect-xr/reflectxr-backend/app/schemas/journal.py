@@ -75,3 +75,15 @@ class JournalDetailResponse(BaseModel):
 class JournalFavoriteUpdate(BaseModel):
     """PATCH /journal/:id/favorite — Toggle the favorite flag."""
     is_favorite: bool
+
+
+class JournalContentUpdate(BaseModel):
+    """
+    PATCH /journal/:id — Update the text of a journal entry.
+
+    The mobile client's "edit reflection" flow sends only the content; we
+    re-run emotion extraction + recompute `word_count` server-side so the
+    stored tags stay in sync with the text. No other fields are editable
+    (image, session, and timestamps are immutable once the entry exists).
+    """
+    content: str
