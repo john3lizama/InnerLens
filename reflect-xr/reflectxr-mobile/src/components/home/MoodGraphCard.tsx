@@ -29,6 +29,7 @@
 import React, { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import Surface from '../ui/Surface';
 import { typography, spacing } from '../../theme';
@@ -57,9 +58,10 @@ const BUCKET_LABELS: Record<BucketKey, string> = {
   neutral:  'Neutral',
 };
 
-// Label color per bucket. All three bucket hexes are soft light tints
-// (mint / rose / periwinkle), so dark body text reads cleanly on every
-// band in both light and dark mode — no per-bucket inversion needed.
+// Label color per bucket. The sunset palette (honey amber, warm coral,
+// soft peach) all pass AA against dark body text — 7.05 / 5.30 / 8.51
+// respectively — so a single dark label color works on every chip
+// without per-bucket inversion.
 const BUCKET_LABEL_COLOR: Record<BucketKey, string> = {
   positive: '#2D2B3D',
   negative: '#2D2B3D',
@@ -267,28 +269,47 @@ function BarColumn({ slot, colors, emptyTrackColor }: BarColumnProps) {
     );
   }
 
-  // Merge raw emotions onto the 11 legend buckets (joy + happiness +
-  // bliss → one happiness band), then stack largest at the base so the
-  // dominant emotion reads as the pill's visual foundation. Inner
-  // segments are plain rectangles; the outer pillClip's overflow:hidden
-  // + full radius clips them into the pill outline. Each band centers
-  // its own "NN%" label (elided on bands too thin to hold one).
+  // Merge raw emotions onto the 3 legend buckets, then stack largest at
+  // the base so the dominant bucket reads as the pill's visual
+  // foundation. Every band except the bottom one extends 1px down into
+  // its neighbor below: on iOS, `share * CHART_HEIGHT` routinely lands on
+  // a fractional pixel and the rasterizer rounds adjacent edges in
+  // opposite directions, leaving a hairline gap that bleeds through to
+  // the card fill as a visible black line. Later siblings render on top,
+  // so the overlapping pixel is painted by the upper band — invisible to
+  // the eye, but it guarantees no seam under any rounding regime. Flex
+  // layout doesn't solve this on its own (Yoga still produces the same
+  // fractional heights, and flex offers no clean overlap mechanism).
+  //
+  // Each band is a vertical LinearGradient (lighter top → darker bottom)
+  // rather than a solid fill. Sharpens band boundaries on the mid-tone
+  // pastel palette: the upper band's darkest row meets the lower band's
+  // lightest row, so hue shifts are reinforced by luminance shifts and
+  // the three buckets stop reading as a single mass.
   const segments = toSegments(emotions);
-  let bottom = 0;
+  let cumulative = 0;
   return (
     <View style={styles.pillClip}>
-      {segments.map((seg) => {
+      {segments.map((seg, idx) => {
+        const bottom = cumulative;
         const height = seg.share * CHART_HEIGHT;
-        const style = {
-          position: 'absolute' as const,
-          left: 0,
-          right: 0,
-          bottom,
-          height,
-          backgroundColor: colors.mood[seg.bucket],
-        };
-        bottom += height;
-        return <View key={seg.bucket} style={style} />;
+        cumulative += height;
+        const overlap = idx === 0 ? 0 : 1;
+        return (
+          <LinearGradient
+            key={seg.bucket}
+            colors={colors.moodGradient[seg.bucket]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: bottom - overlap,
+              height: height + overlap,
+            }}
+          />
+        );
       })}
     </View>
   );

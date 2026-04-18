@@ -39,15 +39,54 @@ const shared = {
     resilience: '#C8B8A8',
   } as Record<string, string>,
 
-  // Mood-graph legend buckets (3: valence-only). All three carry a
-  // purple undertone that connects to the app's primary (#6C63FF) so
-  // the graph feels native rather than bolted on. Same hex in light
-  // and dark — all are light enough for dark body text (#2D2B3D) and
-  // read cleanly against both card: '#FFFFFF' and card: '#24242E'.
+  // Mood-graph legend buckets (3: valence-only). Same hex in light and
+  // dark. Each bucket borrows from one of the app's concept-card auras
+  // so the graph reads like the rest of the app rather than a generic
+  // traffic-light palette:
+  //
+  //   positive → "A Safe Space" aura — soft, luminous mint-teal.
+  //              Same hex as `secondaryLight` / `emotion.calm` /
+  //              `emotion.hope`. Growth + safety without the clinical
+  //              feel of a standard "success" green.
+  //   neutral  → "Emotional Waves" aura — light-saturated brand
+  //              indigo-lavender (derived from `primary`/`primaryLight`;
+  //              HSL ~256° / 62% / 78%). Balanced, reflective baseline.
+  //   negative → "The Weight I Carry" aura — muted, earthy plum-rose.
+  //              Crafted (no direct palette twin) to acknowledge a
+  //              heavy mood with empathy and warmth, not an "error
+  //              red." Warmer than `emotion.anger` (dusty rose) with a
+  //              slight shift toward plum so it stays visually distinct
+  //              from the neutral lavender.
+  //
+  // All three pass AA against `#2D2B3D` body text
+  // (8.73 / 5.96 / 6.24 : 1 for positive / negative / neutral), so a
+  // single dark label color works on every chip without per-bucket
+  // inversion.
   mood: {
-    positive: '#8C92AC', // cool lavender-grey
-    negative: '#DBD7D2', // warm taupe
-    neutral:  '#B2BEB5', // sage mist
+    positive: '#A8D8C8', // soft, luminous mint-teal ("A Safe Space")
+    negative: '#C8A0AE', // muted, earthy plum-rose ("The Weight I Carry")
+    neutral:  '#B7A4EA', // indigo-lavender ("Emotional Waves")
+  },
+
+  // Vertical gradient stops for the mood-graph bars. Each band inside a
+  // stacked pill fills with `[top, bottom]` — lighter at top, darker at
+  // bottom, roughly ±18% luminance around the solid `mood[bucket]` hex.
+  //
+  // Why: three flat pastels stacked together read as a single mass at a
+  // glance. A per-band gradient adds depth AND sharpens the boundary
+  // between adjacent bands, because the upper band's darkest row lands
+  // directly against the lower band's lightest row — so every hue
+  // transition is reinforced by a luminance transition, with no hairline
+  // gap to bleed the card bg through. The legend chips stay solid:
+  // gradients on small chips with dark labels create uneven contrast.
+  //
+  // Applied by MoodGraphCard via `colors.moodGradient[bucket]`; the flat
+  // `mood[bucket]` value is still used for the legend chips, the empty
+  // track opacity fill, and anywhere a single "bucket color" is needed.
+  moodGradient: {
+    positive: ['#B8DFD2', '#8AB1A4'] as const, // light mint → deeper mint
+    negative: ['#D2B1BD', '#A4838F'] as const, // light plum-rose → deeper plum-rose
+    neutral:  ['#C4B4EE', '#9686C0'] as const, // light lavender → deeper lavender
   },
 };
 
