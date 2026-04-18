@@ -23,7 +23,10 @@ export type CreateStackParamList = {
   Concepts: undefined;
   PromptDesign: { concept: Concept };
   PromptEdit: { prompt: string; style: string; concept: Concept };
-  Response: { prompt: string; style: string; concept: Concept };
+  // `jobId` is optional and only present when we deep-link in from a
+  // push notification tap — ResponseScreen skips the initial generate
+  // call and resumes polling the pre-existing job.
+  Response: { prompt: string; style: string; concept: Concept; jobId?: string };
   Reflect: { image: GeneratedImage; concept: Concept; sessionId: string };
 };
 
@@ -50,6 +53,7 @@ export type PlaygroundStackParamList = {
   AlexaGallery: undefined;
   AlexaImageReveal: { imageUrl: string };
   ReflectionEnvironment: undefined;
+  Learning: undefined;
 };
 
 export type HomeStackParamList = {

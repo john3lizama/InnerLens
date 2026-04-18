@@ -42,6 +42,7 @@ import AlexaScreen from '../screens/alexa/AlexaScreen';
 import PlaygroundHubScreen from '../screens/playground/PlaygroundHubScreen';
 import AlexaSetupScreen from '../screens/playground/AlexaSetupScreen';
 import ReflectionEnvironmentScreen from '../screens/playground/ReflectionEnvironmentScreen';
+import LearningScreen from '../screens/playground/LearningScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const HomeStackNav = createNativeStackNavigator<HomeStackParamList>();
@@ -128,6 +129,7 @@ function PlaygroundNavigator() {
       <PlaygroundStackNav.Screen name="AlexaImageReveal" component={ChatImageReveal} />
       {/* TBD */}
       <PlaygroundStackNav.Screen name="ReflectionEnvironment" component={ReflectionEnvironmentScreen} />
+      <PlaygroundStackNav.Screen name="Learning" component={LearningScreen} />
     </PlaygroundStackNav.Navigator>
   );
 }
@@ -156,9 +158,14 @@ export default function MainTabs() {
   // The unread state still applies to MindMate chat, but the badge logic
   // (clearUnread on tap) lives in the tabPress listener below — landing
   // on the hub counts as acknowledging the entry point.
+  //
+  // `vision.pro` / `vision.pro.fill` lean into the XR/spatial nature of
+  // the Playground hub (ReflectionEnvironment, Alexa gallery, MindMate
+  // chat-as-art) — reads more distinctive than the prior grid glyph.
+  // Requires SF Symbols 5 (iOS 17+); Expo SDK 55's min target satisfies.
   const getPlaygroundIcon = (focused: boolean): string => {
-    if (focused) return 'square.grid.2x2.fill';
-    return 'square.grid.2x2';
+    if (focused) return 'vision.pro.fill';
+    return 'vision.pro';
   };
 
   return (

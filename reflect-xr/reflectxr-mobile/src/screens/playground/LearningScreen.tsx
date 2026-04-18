@@ -1,12 +1,17 @@
 /**
- * ReflectionEnvironmentScreen — TBD stub (currently serves as the
- * "Integration with Siri" coming-soon surface on the Playground hub).
+ * LearningScreen — TBD stub for the upcoming "Learning" experience.
  *
- * Wired into navigation so the entry point on the Playground hub has a
- * real destination even though the actual feature is still being
- * designed. The route and file name are retained for now to avoid churn;
- * once the real Siri work lands (App Intents, Siri shortcuts, etc.) this
- * screen — and likely the route — will be replaced.
+ * Pattern-identical to ReflectionEnvironmentScreen (the Siri coming-soon
+ * surface): back button, SF Symbol in a bubble, "COMING SOON" chip,
+ * title, body copy, sign-off. Kept intentionally parallel so the two
+ * stubs feel like a cohesive family while the real features are still
+ * being designed.
+ *
+ * The iconography uses `hand.draw.fill` — a hand holding a pencil —
+ * which reads as "learn by doing" / "hands-on practice," matching the
+ * intent for the Learning flow (guided exercises, not passive content).
+ * SF Symbols are iOS-only; on Android we fall back to an Ionicon that
+ * carries the same affordance.
  */
 
 import React from 'react';
@@ -18,7 +23,7 @@ import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import { typography, spacing, borderRadius } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 
-export default function ReflectionEnvironmentScreen() {
+export default function LearningScreen() {
   const navigation = useNavigation() as any;
   const { surfaces } = useTheme();
   const styles = makeStyles(surfaces);
@@ -38,18 +43,18 @@ export default function ReflectionEnvironmentScreen() {
 
         <View style={styles.body}>
           <View style={styles.iconBubble}>
-            {/* SF Symbol `siri` is iOS 17+ (SF Symbols 5). On Android —
-                where SF Symbols don't exist — fall back to an Ionicon
-                that reads as the same "voice-first AI" affordance. */}
+            {/* `hand.draw.fill` is SF Symbols 3+ (iOS 15+). Android has
+                no SF Symbols, so fall back to an Ionicon that reads as
+                the same "hands-on / create" gesture. */}
             {Platform.OS === 'ios' ? (
               <SymbolView
-                name="siri"
+                name="hand.draw.fill"
                 size={40}
                 type="monochrome"
                 tintColor="#A89BFF"
               />
             ) : (
-              <Ionicons name="sparkles-outline" size={40} color="#A89BFF" />
+              <Ionicons name="create-outline" size={40} color="#A89BFF" />
             )}
           </View>
 
@@ -57,14 +62,14 @@ export default function ReflectionEnvironmentScreen() {
             <Text style={styles.chipText}>COMING SOON</Text>
           </View>
 
-          <Text style={styles.title}>Integration with Siri</Text>
+          <Text style={styles.title}>Learning</Text>
 
           <Text style={styles.body__text}>
-            We're teaching Siri to open a reflection, capture a thought, or
-            start a MindMate conversation, all hands-free.
+            A hands-on way to learn the craft of reflection, short lessons,
+            guided practices you can return to, and prompts that grow with you.
           </Text>
           <Text style={styles.body__text}>
-            {'"Hey Siri, talk to MindMate"\n"Hey Siri, log a reflection with MindMate"\n"Hey Siri, ask MindMate for a calming check-in"'}
+            Build the habit. Notice the patterns. Turn insight into practice.
           </Text>
           <Text style={[styles.body__text, styles.signoff]}>
             On its way. Stay tuned.
