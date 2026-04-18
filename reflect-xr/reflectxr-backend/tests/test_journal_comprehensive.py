@@ -779,10 +779,15 @@ async def test_auth_invalid_token_rejected(client, db):
 
 
 async def test_auth_expired_token_rejected(client, db):
-    from app.services.auth_service import create_access_token
-    from datetime import timedelta
-    expired = create_access_token({"sub": str(uuid.uuid4())},
-                                  expires_delta=timedelta(seconds=-1))
+    from jose import jwt
+    from app.config import settings
+    from datetime import datetime, timedelta, timezone
+    expired_payload = {
+        "sub": str(uuid.uuid4()),
+        "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+        "type": "access",
+    }
+    expired = jwt.encode(expired_payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
     resp = await client.get(JOURNAL_URL, headers={"Authorization": f"Bearer {expired}"})
     assert resp.status_code == 401
 
