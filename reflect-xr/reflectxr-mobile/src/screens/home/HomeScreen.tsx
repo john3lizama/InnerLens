@@ -23,21 +23,25 @@ import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import SafeAreaWrapper from '../../components/ui/SafeAreaWrapper';
 import PressableSurface from '../../components/ui/PressableSurface';
 import Surface from '../../components/ui/Surface';
 import StreakBadge from '../../components/profile/StreakBadge';
 import StreakModal from '../../components/profile/StreakModal';
 import MoodGraphCard from '../../components/home/MoodGraphCard';
+import JournalCard from '../../components/journal/JournalCard';
 import { typography, spacing, borderRadius } from '../../theme';
 import { enterConfig } from '../../theme/motion';
 import { haptic } from '../../theme/motion';
 import { useTheme } from '../../context/ThemeContext';
+import { useMindMate } from '../../context/MindMateContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useConcepts } from '../../hooks/useConcepts';
 import { conceptIcons } from '../../data/mockConcepts';
 import * as journalService from '../../services/journalService';
 import type { StreakData } from '../../services/journalService';
+import type { JournalEntry } from '../../types/journal';
 
 // ── Two-column geometry (matches ImageGrid.tsx) ───────────────────────
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -53,12 +57,15 @@ export default function HomeScreen() {
   const navigation = useNavigation() as any;
   const { user } = useAuth();
   const { concepts } = useConcepts();
+  const { hasUnread: hasUnreadMindMate } = useMindMate();
   const [streakData, setStreakData] = useState<StreakData | null>(null);
   const [streakModalVisible, setStreakModalVisible] = useState(false);
+  const [latestReflection, setLatestReflection] = useState<JournalEntry | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       loadStreak();
+      loadLatestReflection();
     }, [])
   );
 
@@ -68,6 +75,19 @@ export default function HomeScreen() {
       setStreakData(data);
     } catch (err) {
       console.error('Failed to load streak:', err);
+    }
+  };
+
+  // Pulls the newest journal entry (limit 1). Called on every focus so
+  // returning to Home after creating a reflection reflects it without
+  // any global store or observer — same pattern as `loadStreak` and
+  // `JournalListScreen`'s focus-based reload.
+  const loadLatestReflection = async () => {
+    try {
+      const res = await journalService.getJournals(1, 0);
+      setLatestReflection(res.entries[0] ?? null);
+    } catch (err) {
+      console.error('Failed to load latest reflection:', err);
     }
   };
 
@@ -144,18 +164,54 @@ export default function HomeScreen() {
               // Tab was renamed MindMate → Playground; jump straight to the
               // Chat screen inside the Playground stack so the home teaser
               // still opens the chat directly (not the hub).
-              navigation.navigate('Playground', { screen: 'Chat' });
+              //
+              // `initial: false` is load-bearing: without it, React
+              // Navigation makes `Chat` the INITIAL route of the Playground
+              // stack (not a push on top of `PlaygroundHub`), which leaves
+              // nothing to pop back to — the back button exits to the Home
+              // tab and tapping the Playground tab icon does nothing because
+              // the stack is already at its root. Passing `false` preserves
+              // the natural hub → chat hierarchy so back and tab-tap both
+              // land on PlaygroundHub as expected.
+              navigation.navigate('Playground', {
+                screen: 'Chat',
+                initial: false,
+              });
             }}
             padded
             radius="xl"
             style={styles.discoveryCard}
           >
-            <View style={styles.discoveryRow}>
-              <Image
-                source={require('../../../assets/mindmate-icon.svg')}
-                style={styles.discoveryIcon}
-                contentFit="cover"
+            {/* Dark-mode-only violet gradient. Top-left stop (`#3B2E7A`)
+                matches the MindMate icon's inner radial gradient so the
+                card feels connected to the artwork; bottom-right stop
+                (`#1E1A2E`) is the hero gradient endpoint, keeping the
+                card rooted in the existing dark palette. Absolute-filled
+                so it sits behind the row without affecting layout. */}
+            {isDark && (
+              <LinearGradient
+                colors={['#3B2E7A', '#1E1A2E']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[StyleSheet.absoluteFill, { borderRadius: borderRadius.xl }]}
+                pointerEvents="none"
               />
+            )}
+            <View style={styles.discoveryRow}>
+              {/* Custom MindMate icon (same asset ChatScreen uses in its
+                  header). Expo-image renders the SVG natively on both
+                  platforms — no transformer needed. When a reply is
+                  waiting (tracked by MindMateContext, cleared on
+                  Playground tab press), a small coral dot overlays the
+                  top-right corner to convey the unread state. */}
+              <View style={styles.discoveryIcon}>
+                <Image
+                  source={require('../../../assets/mindmate-icon.svg')}
+                  style={styles.discoveryIconImage}
+                  contentFit="contain"
+                />
+                {hasUnreadMindMate && <View style={styles.discoveryIconBadge} />}
+              </View>
               <View style={styles.discoveryContent}>
                 <Text style={styles.discoveryTitle}>MindMate</Text>
                 <Text style={styles.discoverySubtitle}>
@@ -164,6 +220,40 @@ export default function HomeScreen() {
               </View>
             </View>
           </PressableSurface>
+
+          {/* ══════════════════════════════════════════════════════
+              Latest reflection — surfaces the user's newest journal
+              entry so Home mirrors what they've most recently made.
+              Refreshes on focus (see useFocusEffect above), so a new
+              reflection appears here automatically on return. Hides
+              entirely for fresh accounts with no entries.
+              ══════════════════════════════════════════════════════ */}
+          {latestReflection && (
+            <Animated.View
+              entering={FadeInUp.duration(enterConfig.content.duration).delay(240)}
+              style={styles.latestReflectionSection}
+            >
+              <JournalCard
+                id={latestReflection.id}
+                // Inline the "Your latest reflection:" framing directly into
+                // the preview text so the card doesn't need a separate label
+                // row above it. Truncation (2 lines via `numberOfLines` on
+                // JournalCard's preview Text) still works normally.
+                content={`Your latest reflection: ${latestReflection.content}`}
+                emotionTags={latestReflection.emotion_tags}
+                imageUrl={latestReflection.image?.thumbnail_url ?? latestReflection.image?.image_url}
+                createdAt={latestReflection.created_at}
+                onPress={(id) => {
+                  haptic.selection();
+                  navigation.navigate('Journal', {
+                    screen: 'JournalDetail',
+                    params: { journalId: id },
+                    initial: false,
+                  });
+                }}
+              />
+            </Animated.View>
+          )}
 
           {/* Concept preview chips */}
           {previewConcepts.length > 0 && (
@@ -256,33 +346,13 @@ const makeStyles = (surfaces: any, colors: any) => StyleSheet.create({
     aspectRatio: 1947 / 653,
   },
 
-  // Continuation zone (right column in the card row)
-  continuationCard: {
-    overflow: 'hidden',
-  },
-  continuationCardPadded: {
-    padding: spacing.md,
-  },
-  continuationImage: {
-    width: '100%',
-    height: 110,
-  },
-  continuationMeta: {
-    padding: spacing.sm + 2,
-  },
-  continuationLabel: {
-    ...typography.caption,
-    color: surfaces.text.tertiary,
-    marginBottom: spacing.xs,
-  },
-  continuationDate: {
-    ...typography.caption,
-    fontSize: 10,
-    color: surfaces.text.tertiary,
-  },
-  continuationPreview: {
-    ...typography.bodySmall,
-    color: surfaces.text.secondary,
+  // Latest-reflection section — sits under MindMate, above concept
+  // chips. No marginTop: the preceding `discoveryCard` already brings
+  // its own marginBottom, so we only need spacing below this block.
+  // The "Your latest reflection:" framing lives inline in the card's
+  // content prop, so no separate label style is needed here.
+  latestReflectionSection: {
+    marginBottom: spacing.md,
   },
   conceptRow: {
     flexDirection: 'column',
@@ -312,18 +382,43 @@ const makeStyles = (surfaces: any, colors: any) => StyleSheet.create({
 
   // Discovery zone
   discoveryCard: {
+    // `md` matches the other card-to-card gaps on this screen
+    // (hero → MoodGraph, MoodGraph → MindMate, latest → concepts).
     marginBottom: spacing.md,
   },
   discoveryRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  // MindMate-icon container. The layout box stays 40×40 so the card
+  // height (currently driven by this element) doesn't grow; the visual
+  // size is bumped via `transform: scale` which leaves layout untouched.
+  // `position: relative` anchors the unread-badge overlay.
   discoveryIcon: {
     width: 40,
     height: 40,
-    borderRadius: borderRadius.md,
-    overflow: 'hidden',
     marginRight: spacing.md,
+    position: 'relative',
+    transform: [{ scale: 1.3 }],
+  },
+  discoveryIconImage: {
+    width: '100%',
+    height: '100%',
+  },
+  // Small dot in the top-right of the icon when a MindMate reply is
+  // unread. Coral (= `accent` / `error`) is the app's conventional
+  // attention color; the 2px border cuts a clean gap against whatever
+  // the icon's own dark-violet bg shows through.
+  discoveryIconBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.accent,
+    borderWidth: 2,
+    borderColor: colors.card,
   },
   discoveryContent: {
     flex: 1,
@@ -338,10 +433,11 @@ const makeStyles = (surfaces: any, colors: any) => StyleSheet.create({
     marginTop: 2,
   },
 
-  // Concept chips
-  conceptPreview: {
-    marginTop: spacing.xs,
-  },
+  // Concept chips — no marginTop: the preceding section's
+  // marginBottom (`latestReflectionSection` or `discoveryCard`) already
+  // provides the `spacing.md` gap, consistent with every other card
+  // pair on the screen.
+  conceptPreview: {},
   conceptChipRow: {
     gap: spacing.sm,
   },
