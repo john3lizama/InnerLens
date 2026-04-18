@@ -1,5 +1,15 @@
-/** Ensure timestamps without timezone info are treated as UTC */
-function normalizeTimestamp(dateString: string): string {
+/**
+ * Ensure timestamps without timezone info are treated as UTC.
+ *
+ * The backend's `ChatSession.created_at` (and other columns declared
+ * `Mapped[datetime]` without `timezone=True`) serialize as naive ISO
+ * strings like "2026-04-18T12:06:00" — no `Z`, no offset. ES6 `new
+ * Date(...)` parses those as **local time**, which flips the sign of
+ * `Date.now() - parsed` for users west of UTC and breaks any "just now"
+ * / relative-time logic built on that diff. Appending `Z` forces UTC
+ * interpretation so the math is consistent across timezones.
+ */
+export function normalizeTimestamp(dateString: string): string {
   if (dateString && !dateString.endsWith('Z') && !dateString.includes('+') && !/\d{2}:\d{2}$/.test(dateString.slice(-5))) {
     return dateString + 'Z';
   }

@@ -27,9 +27,19 @@ import { typography, spacing, borderRadius } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 import * as chatService from '../../services/chatService';
 import type { ChatSessionSummary } from '../../services/chatService';
+import { normalizeTimestamp } from '../../utils/formatDate';
 
-function relativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
+// Takes an explicit `nowMs` reference instead of calling `Date.now()` so
+// the screen can drive label updates off a state-backed tick — without
+// that, the value is frozen at mount/focus and "just now" sticks around
+// long after the message has aged past a minute.
+//
+// `normalizeTimestamp` handles the backend's naive-datetime serialization
+// (no `Z` suffix). Without it, ES6 `new Date(iso)` parses as local time
+// and the diff goes negative for any user west of UTC — permanently
+// pinning the label to "just now" regardless of how much time passes.
+function relativeTime(iso: string, nowMs: number): string {
+  const diffMs = nowMs - new Date(normalizeTimestamp(iso)).getTime();
   const mins = Math.round(diffMs / 60_000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
@@ -66,6 +76,10 @@ export default function ChatHistoryScreen() {
   const styles = makeStyles(surfaces);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  // `now` backs the relative-time labels. Bumping it triggers a re-render
+  // so "just now" → "1m ago" transitions happen while the user is sitting
+  // on the screen, not only when they navigate away and back.
+  const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async () => {
     try {
@@ -81,6 +95,14 @@ export default function ChatHistoryScreen() {
   useFocusEffect(
     useCallback(() => {
       load();
+      // Refresh the reference time immediately on focus (in case the user
+      // came back after the app was backgrounded for a while) and then
+      // once per minute — the coarsest label step below an hour. Cleaned
+      // up on blur so there's no background churn when the screen isn't
+      // visible.
+      setNow(Date.now());
+      const interval = setInterval(() => setNow(Date.now()), 60_000);
+      return () => clearInterval(interval);
     }, [load])
   );
 
@@ -183,7 +205,7 @@ export default function ChatHistoryScreen() {
               {preview}
             </Text>
             <View style={styles.metaRow}>
-              <Text style={styles.metaTime}>{relativeTime(item.created_at)}</Text>
+              <Text style={styles.metaTime}>{relativeTime(item.created_at, now)}</Text>
               {item.journal_count > 0 && (
                 <View style={styles.badge}>
                   <Ionicons
@@ -248,6 +270,10 @@ export default function ChatHistoryScreen() {
             data={sessions}
             keyExtractor={(s) => s.id}
             renderItem={renderItem}
+            // `sessions` identity doesn't change when `now` ticks, so
+            // without `extraData` FlatList's row memoization would keep
+            // showing the stale time labels even after a re-render.
+            extraData={now}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.list}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
