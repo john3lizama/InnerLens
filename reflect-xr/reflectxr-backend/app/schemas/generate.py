@@ -39,9 +39,34 @@ class GeneratedImageResponse(BaseModel):
 
 
 class GenerateResponse(BaseModel):
-    """POST /generate — The full set of generated images."""
+    """POST /generate — The full set of generated images (status 200)."""
     session_id: UUID
     images: list[GeneratedImageResponse]
+
+
+class GeneratePendingResponse(BaseModel):
+    """
+    POST /generate — Returned with status 202 when both OpenAI and Gemini
+    failed on the sync path. The request has been queued for the
+    background retry worker. Client polls GET /generate/status/{job_id}
+    for completion and/or waits for a push notification.
+    """
+    status: str = "pending"
+    job_id: UUID
+
+
+class JobStatusResponse(BaseModel):
+    """
+    GET /generate/status/{job_id} — Tracks an escalated retry.
+
+    - status == "pending"   — still retrying; poll again later.
+    - status == "succeeded" — `session_id` + `images` are populated.
+    - status == "failed"    — `error` holds the last provider's message.
+    """
+    status: str  # 'pending' | 'succeeded' | 'failed'
+    session_id: UUID | None = None
+    images: list[GeneratedImageResponse] = []
+    error: str | None = None
 
 
 class SelectImageResponse(BaseModel):

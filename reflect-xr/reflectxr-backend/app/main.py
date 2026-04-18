@@ -21,10 +21,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.database import async_session
 from app.jobs.retention import purge_stale_chat_sessions
+from app.workers.image_retry import reconcile_stale_pending_jobs
 
 # ── Import all routers ──────────────────────────────────────────────────
 # Each router handles one area of the API. They're defined in app/routers/
-from app.routers import auth, concepts, generate, chat, journal, alexa, activity, mood
+from app.routers import (
+    auth, concepts, generate, chat, journal, alexa, activity, mood,
+    push_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +59,20 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
     logger.info("retention: scheduler started (chat_retention @ 03:00 UTC daily)")
+
+    # ── Reconcile orphan image-gen retry jobs ─────────────────────────
+    # `asyncio.create_task` tasks don't survive a process restart, so any
+    # `image_jobs` row still marked `pending` from before this boot belongs
+    # to a previous (now-dead) worker. Mark them failed and send the
+    # failure push so users aren't left staring at a forever-loading
+    # screen. See app/workers/image_retry.py.
+    try:
+        await reconcile_stale_pending_jobs()
+    except Exception:
+        # Never block startup on this — the retry worker will still run
+        # for new requests even if reconcile hit a transient DB error.
+        logger.exception("image_retry: reconcile on startup failed")
+
     try:
         yield
     finally:
@@ -95,14 +113,15 @@ app.add_middleware(
 # Each router gets a URL prefix. So auth.router's "/register" endpoint
 # becomes "/auth/register" in the full API.
 
-app.include_router(auth.router,     prefix="/auth",     tags=["Auth"])
-app.include_router(concepts.router, prefix="/concepts", tags=["Concepts"])
-app.include_router(generate.router, prefix="/generate", tags=["Generate"])
-app.include_router(chat.router,     prefix="/chat",     tags=["Chat"])
-app.include_router(journal.router,  prefix="/journal",  tags=["Journal"])
-app.include_router(alexa.router,    prefix="/alexa",    tags=["Alexa"])
-app.include_router(activity.router, prefix="/activity", tags=["Activity"])
-app.include_router(mood.router,     prefix="/mood",     tags=["Mood"])
+app.include_router(auth.router,        prefix="/auth",              tags=["Auth"])
+app.include_router(concepts.router,    prefix="/concepts",          tags=["Concepts"])
+app.include_router(generate.router,    prefix="/generate",          tags=["Generate"])
+app.include_router(chat.router,        prefix="/chat",              tags=["Chat"])
+app.include_router(journal.router,     prefix="/journal",           tags=["Journal"])
+app.include_router(alexa.router,       prefix="/alexa",             tags=["Alexa"])
+app.include_router(activity.router,    prefix="/activity",          tags=["Activity"])
+app.include_router(mood.router,        prefix="/mood",              tags=["Mood"])
+app.include_router(push_tokens.router, prefix="/users/push_tokens", tags=["Push Tokens"])
 
 
 # ══════════════════════════════════════════════════════════════════════════

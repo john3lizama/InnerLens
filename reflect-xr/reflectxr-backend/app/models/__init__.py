@@ -16,6 +16,8 @@ from app.models.generated_image import GeneratedImage
 from app.models.journal_entry import JournalEntry
 from app.models.email_verification import EmailVerification
 from app.models.pending_registration import PendingRegistration
+from app.models.image_job import ImageJob
+from app.models.user_push_token import UserPushToken
 
 # This list makes it easy to import everything at once:
 # from app.models import User, Concept, etc.
@@ -29,4 +31,6 @@ __all__ = [
     "JournalEntry",
     "EmailVerification",
     "PendingRegistration",
+    "ImageJob",
+    "UserPushToken",
 ]
