@@ -8,7 +8,9 @@
 
 ReflectXR is a cross-platform mobile app that lets users select or describe an emotion, generate AI artwork from that emotion, and reflect on the result through creative journaling. MindMate is our team's original addition — a conversational AI companion that detects emotions from natural conversation and generates art automatically, without the user ever writing a prompt.
 
----
+# Demo
+
+[![Watch the demo](https://img.youtube.com/vi/SUgvqrHv2T4/hqdefault.jpg)](https://youtu.be/SUgvqrHv2T4)
 
 ## Requirement Traceability
 
@@ -28,8 +30,6 @@ Every feature maps back to the sponsor's project brief. This table is the source
 | R10 | Final presentation/demo to project sponsors | `docs/presentation/` — slides + 3-min demo script | Not started |
 | **Bonus** | MindMate AI chatbot (emotion → auto art generation) | `POST /chat` → GPT-4o-mini → emotion extraction → optional `POST /chat/generate-from-conversation` | Shipped |
 | **Bonus** | Alexa/Echo voice integration (stretch) | `POST /alexa/webhook` — Custom Skill proxies voice to MindMate via `quick=True` mode to meet Alexa's 8-second budget. Demo-user-bound beta. | Shipped (beta) |
-
----
 
 ## Tech Stack
 
@@ -52,8 +52,6 @@ Every feature maps back to the sponsor's project brief. This table is the source
 | Containers | Docker + Docker Compose | One `docker-compose up` for Postgres + API + NGINX. |
 | CI/CD | GitHub Actions | Lint, test, build on every PR. |
 
----
-
 ## Key Capabilities
 
 - **Two-step email-verified registration.** `POST /auth/register/request` → 4-digit code via SES → `POST /auth/register/verify` → user + JWT pair.
@@ -65,8 +63,6 @@ Every feature maps back to the sponsor's project brief. This table is the source
 - **Alexa beta.** Custom Skill → `/alexa/webhook` → skill-ID validation → demo-user-bound → MindMate chat in `quick=True` mode to stay under Alexa's 8-second turn budget.
 - **Push notifications.** Expo push tokens upserted on auth, soft-revoked on logout, auto-cleaned on `DeviceNotRegistered`.
 - **Immersive booking (Calendly).** External link only — `IMMERSIVE_BOOKING_URL` opened via `Linking.openURL()` from `PlaygroundHubScreen`. Not a booking system inside the app.
-
----
 
 ## System Architecture
 
@@ -168,8 +164,6 @@ Every feature maps back to the sponsor's project brief. This table is the source
 `emotion_tags` is a JSONB column on `messages` and `journal_entries`:
 `[{"emotion": str, "intensity": float}]`, max 3, sorted by intensity desc.
 
----
-
 ## Project Structure
 
 ```
@@ -234,14 +228,10 @@ InnerLens/
         └── package.json
 ```
 
----
-
 ## Documentation Surfaces
 
 - **`docs/MODULE-*.md`** — the five sponsor-facing module guides plus `ALEXA-SESSION-LOG.md`. Start here for narrative deep-dives.
 - **Static HTML docs site** — a 15-page standalone site (Overview, Setup, Architecture, Mobile, Backend, API, AI Integration, Data Storage, Integrations, Alexa, Calendly, Workflow, Security, Contribution, Index). Dependency-free — open `index.html` in any browser. Maintained out of tree for easy hosting on Netlify / GitHub Pages.
-
----
 
 ## Getting Started
 
@@ -278,8 +268,6 @@ docker-compose exec api pytest tests/ -v
 
 **Required env vars (backend):** `DATABASE_URL`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_URL`, `OPENAI_API_KEY`, `JWT_SECRET` (rotate in prod). Optional: `GEMINI_API_KEY` (if unset, fallback disabled — both providers must succeed via DALL·E alone), `SES_SENDER_EMAIL`, `AMAZON_SKILL_ID`, `ALEXA_DEMO_USER_ID`, `IMAGE_RETRY_CYCLES` (default `3`), `IMAGE_RETRY_BACKOFFS` (default `0,30,90`).
 
----
-
 ## Team
 
 | Name | Role | Responsibilities |
@@ -288,8 +276,6 @@ docker-compose exec api pytest tests/ -v
 | John Lizama | Backend Development | FastAPI, PostgreSQL, Docker, NGINX, authentication, Cloudflare R2 storage |
 | Aahil Shaik | AI/ML Integration | OpenAI DALL·E 3 + Gemini 2.5 Flash Image provider race, GPT-4o-mini prompt engineering, content guardrails (OpenAI Moderation + crisis-keyword gate + Gemini safety_settings) |
 | Terina Ishaqzai | UI/UX Design | User flows, wireframes, screen design, graphic design (cloud-mascot app icon, typography, wellness color system, dark mode) |
-
----
 
 ## Authors
 - Mohammed Abdur Rahman
