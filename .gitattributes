@@ -1,0 +1,3 @@
+# Mark comprehensive test files as generated so GitHub Linguist
+# counts TypeScript as the primary language
+*_comprehensive.py linguist-generated
