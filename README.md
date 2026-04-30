@@ -66,99 +66,51 @@ Every feature maps back to the sponsor's project brief. This table is the source
 
 ## System Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         CLIENT LAYER                                │
-│                                                                     │
-│   ┌───────────────────────┐        ┌────────────────────┐           │
-│   │   React Native App    │        │   Alexa Custom     │           │
-│   │   (Expo — iOS/Android)│        │   Skill (beta)     │           │
-│   │                       │        │                    │           │
-│   │ Tabs:                 │        │ Voice utterance    │           │
-│   │  • Home (mood graph)  │        │       ↓            │           │
-│   │  • Create / Reflect   │        │ Alexa Service      │           │
-│   │  • Journal            │        │       ↓            │           │
-│   │  • Playground         │        │ POST /alexa/       │           │
-│   │    (MindMate, Alexa,  │        │   webhook          │           │
-│   │     Calendly link)    │        │ (skill-ID gated)   │           │
-│   │  • Profile            │        │                    │           │
-│   └──────────┬────────────┘        └─────────┬──────────┘           │
-│              │ HTTPS (axios + JWT refresh)   │ HTTPS (Alexa cloud)  │
-└──────────────┼───────────────────────────────┼──────────────────────┘
-               │                               │
-               ▼                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                       NGINX REVERSE PROXY                           │
-│                   :443 → proxy_pass → api:8000                      │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                     FastAPI APPLICATION SERVER                      │
-│                                                                     │
-│  ROUTERS (app/routers/) — 9 mounted                                 │
-│  ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐      │
-│  │ /auth   │ │ /concepts│ │ /generate│ │ /chat  │ │ /journal │      │
-│  ├─────────┤ ├──────────┤ ├──────────┤ ├────────┤ ├──────────┤      │
-│  │ /alexa  │ │ /activity│ │ /mood    │ │ /users/push_tokens  │      │
-│  └────┬────┘ └─────┬────┘ └────┬─────┘ └───┬────┘ └────┬─────┘      │
-│       │            │           │           │           │            │
-│       ▼            ▼           ▼           ▼           ▼            │
-│  SERVICES (app/services/)                                           │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │ auth_service.py         — JWT pair, bcrypt, refresh queue    │   │
-│  │ image_service.py        — provider race, thumb, upload R2    │   │
-│  │ chat_service.py         — context + GPT-4o-mini + should-gen │   │
-│  │ emotion_service.py      — top-3 tags via GPT-4o-mini         │   │
-│  │ notification_service.py — batch Expo Push, auto-revoke       │   │
-│  │ email_service.py        — SES 4-digit codes                  │   │
-│  │ prompt_builder.py       — concept template + dominant emotion│   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  PROVIDERS (app/services/providers/)                                │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │ openai_image.py  — DALL·E 3, 1024×1024, 25 s timeout          │   │
-│  │ gemini_image.py  — 2.5 Flash Image, BLOCK_MEDIUM_AND_ABOVE    │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  AI + SAFETY (app/ai/)                                              │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │ system_prompts.py  — MindMate prompt (2-4 sentence cap)       │   │
-│  │ safety.py          — crisis keyword scan → 988 + moderation   │   │
-│  │ emotion_valence.py — 188-entry +1/-1/0 map for mood graph     │   │
-│  │ emotion_map.py     — emotion→concept lookup for auto-gen      │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  BACKGROUND WORK                                                    │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │ workers/image_retry.py — asyncio retry (3 × backoff 0/30/90) │   │
-│  │ jobs/retention.py      — APScheduler daily @ 03:00 UTC       │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-└──────────┬───────────────────────────┬──────────────────────────────┘
-           │                           │
-           ▼                           ▼
-┌──────────────────────┐     ┌──────────────────────┐
-│   PostgreSQL 16      │     │   Cloudflare R2      │
-│                      │     │   (S3-compatible)    │
-│   Tables (11):       │     │                      │
-│    • users           │     │   Bucket:            │
-│    • sessions        │     │    reflectxr-images  │
-│    • messages        │     │      /generated/     │
-│    • generated_images│     │      /thumbnails/    │
-│    • journal_entries │     │                      │
-│    • concepts        │     │   Public via         │
-│    • styles          │     │   S3_PUBLIC_URL      │
-│    • image_jobs      │     │                      │
-│    • user_push_tokens│     └──────────────────────┘
-│    • pending_        │
-│      registration    │              ▲
-│    • email_          │              │
-│      verification    │     Migrations managed by
-└──────────┬───────────┘     ┌──────────────────────┐
-           │                 │ Alembic              │
-           └────────────────►│ alembic/versions/    │
-                             │ (001 → 006)          │
-                             └──────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Client["CLIENT LAYER"]
+        direction LR
+        RN["<b>React Native App</b><br/>Expo · iOS/Android<br/>Tabs: Home · Create · Journal<br/>Playground · Profile"]
+        AlexaSkill["<b>Alexa Custom Skill</b> (beta)<br/>Voice utterance → Alexa Service<br/>→ POST /alexa/webhook<br/>(skill-ID gated)"]
+    end
+
+    NGINX["<b>NGINX REVERSE PROXY</b><br/>:443 → proxy_pass → api:8000"]
+
+    subgraph API["FASTAPI APPLICATION SERVER"]
+        direction TB
+        Routers["<b>ROUTERS</b> (app/routers/) — 9 mounted<br/>/auth · /concepts · /generate · /chat · /journal<br/>/alexa · /activity · /mood · /users/push_tokens"]
+        Services["<b>SERVICES</b> (app/services/)<br/>auth_service · image_service · chat_service<br/>emotion_service · notification_service<br/>email_service · prompt_builder"]
+        Providers["<b>PROVIDERS</b> (app/services/providers/)<br/>openai_image — DALL·E 3, 1024×1024, 25s<br/>gemini_image — 2.5 Flash, BLOCK_MEDIUM_AND_ABOVE"]
+        AI["<b>AI + SAFETY</b> (app/ai/)<br/>system_prompts · safety (988 hotline)<br/>emotion_valence (188-entry) · emotion_map"]
+        BG["<b>BACKGROUND WORK</b><br/>workers/image_retry — asyncio 3× backoff 0/30/90<br/>jobs/retention — APScheduler daily @ 03:00 UTC"]
+
+        Routers --> Services
+        Services --> Providers
+        Services --> AI
+        Services --> BG
+    end
+
+    PG[("<b>PostgreSQL 16</b><br/>11 tables:<br/>users · sessions · messages<br/>generated_images · journal_entries<br/>concepts · styles · image_jobs<br/>user_push_tokens · pending_registration<br/>email_verification")]
+    R2[("<b>Cloudflare R2</b> (S3-compatible)<br/>bucket: reflectxr-images<br/>/generated/ · /thumbnails/<br/>public via S3_PUBLIC_URL")]
+    Alembic["<b>Alembic</b><br/>alembic/versions/ (001 → 006)"]
+
+    RN -- "HTTPS · axios + JWT refresh" --> NGINX
+    AlexaSkill -- "HTTPS · Alexa cloud" --> NGINX
+    NGINX --> API
+    API --> PG
+    API --> R2
+    Alembic -. "manages migrations" .-> PG
+
+    classDef client fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+    classDef proxy fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef app fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
+    classDef store fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef tool fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    class RN,AlexaSkill client
+    class NGINX proxy
+    class Routers,Services,Providers,AI,BG app
+    class PG,R2 store
+    class Alembic tool
 ```
 
 `emotion_tags` is a JSONB column on `messages` and `journal_entries`:
